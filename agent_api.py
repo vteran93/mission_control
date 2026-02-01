@@ -95,6 +95,49 @@ class MissionControlAPI:
             'content': f"[{self.agent_name}] {message}"
         })
         print(f"🔔 Notificación enviada: {message}")
+    
+    def send_message_to_agent(self, target_agent: str, message: str, task_id: Optional[int] = None):
+        """
+        Enviar mensaje a otro agente (via Clawdbot sessions_send)
+        
+        Args:
+            target_agent: Nombre del agente destino (ej: "Jarvis-QA")
+            message: Contenido del mensaje
+            task_id: (Opcional) ID de la tarea relacionada
+        
+        Returns:
+            dict con resultado de sessions_send
+        """
+        # Determinar el label del agente destino
+        label_map = {
+            'Jarvis-QA': 'jarvis-qa',
+            'Jarvis-Dev': 'jarvis-dev',
+            'jarvis-qa': 'jarvis-qa',
+            'jarvis-dev': 'jarvis-dev'
+        }
+        
+        label = label_map.get(target_agent, target_agent.lower())
+        
+        # Log en Mission Control
+        self.send_message(
+            content=f"📤 Enviando mensaje a {target_agent}: {message[:80]}...",
+            task_id=task_id
+        )
+        
+        # Enviar via sessions_send (esto lo ejecutará el agente que llama)
+        print(f"📨 Mensaje para {target_agent} (label: {label})")
+        print(f"💬 Contenido: {message}")
+        print(f"\n⚠️ NOTA: Debes ejecutar este comando desde Clawdbot:")
+        print(f"   sessions_send(label='{label}', message='''")
+        print(f"   {message}")
+        print(f"   ''')")
+        
+        return {
+            'target_agent': target_agent,
+            'label': label,
+            'message': message,
+            'status': 'ready_to_send'
+        }
 
 
 # ============================================
@@ -142,6 +185,13 @@ def test_documentary_script_valid_data():
     
     # Notificar a Scrum Master
     jarvis.notify_scrum_master("✅ TICKET-001 completado con 100% coverage")
+    
+    # Enviar mensaje a otro agente
+    jarvis.send_message_to_agent(
+        target_agent="Jarvis-QA",
+        message="🔔 TICKET-002 está listo para review. Ejecuta: docker-compose up --build -d",
+        task_id=task_id
+    )
     
     # Actualizar estado a idle
     jarvis.update_status("idle")

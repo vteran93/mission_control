@@ -1,236 +1,213 @@
-# Mission Control 🎯
+# Mission Control - Scrum Dashboard para BlackForge MVP
 
-**Dashboard Scrum para coordinar agentes AI en BlackForge MVP**
-
----
-
-## 📋 Features
-
-- **Agentes:** Visualiza estado de Jarvis-Dev y Jarvis-QA en tiempo real
-- **Sprint Board:** Kanban board (TODO → IN PROGRESS → REVIEW → DONE → BLOCKED)
-- **Comunicación:** Chat entre agentes sobre tareas
-- **Documentos:** Artefactos generados (código, specs, tests, reports)
-- **Notificaciones:** Alertas para Scrum Master
-- **Auto-refresh:** Actualización cada 5 segundos
-
----
+Dashboard web para coordinar agentes (Jarvis-Dev, Jarvis-QA) en el desarrollo de BlackForge.
 
 ## 🚀 Quick Start
 
-### 1. Instalar dependencias
+```bash
+# 1. Instalar dependencias
+pip install -r requirements.txt
+
+# 2. Inicializar base de datos
+python3 init_db.py
+
+# 3. Arrancar servidor
+python3 app.py
+```
+
+Abre: **http://localhost:5001**
+
+---
+
+## 📡 Agent API
+
+Los agentes usan `agent_api.py` para interactuar con Mission Control.
+
+### Ejemplo Básico
+
+```python
+from agent_api import MissionControlAPI
+
+# Inicializar agente
+jarvis = MissionControlAPI("Jarvis-Dev")
+
+# Actualizar estado
+jarvis.update_status("working")
+
+# Crear tarea
+task_id = jarvis.create_task(
+    title="TICKET-001: Pydantic Models",
+    description="Implementar schemas con TDD",
+    priority="critical",
+    status="in_progress"
+)
+
+# Enviar mensaje
+jarvis.send_message(
+    content="🟢 GREEN: 39 tests passing, 99% coverage",
+    task_id=task_id
+)
+
+# Crear documento
+jarvis.create_document(
+    title="test_models.py",
+    content_md="```python\n# tests\n```",
+    doc_type="test",
+    task_id=task_id
+)
+
+# Actualizar tarea
+jarvis.update_task(task_id, status="done")
+
+# Notificar Scrum Master
+jarvis.notify_scrum_master("✅ TICKET-001 completado")
+
+# Enviar mensaje a otro agente
+jarvis.send_message_to_agent(
+    target_agent="Jarvis-QA",
+    message="🔔 TICKET-002 listo para review",
+    task_id=task_id
+)
+
+# Cambiar estado
+jarvis.update_status("idle")
+```
+
+---
+
+## 💬 Mensajes Entre Agentes
+
+### Opción 1: Desde Python (API)
+
+```python
+from agent_api import MissionControlAPI
+
+api = MissionControlAPI('Victor')
+api.send_message_to_agent(
+    target_agent='Jarvis-QA',
+    message='Revisa TICKET-002 por favor'
+)
+```
+
+Esto te dará el comando `sessions_send` que debes copiar en Clawdbot.
+
+### Opción 2: Script Helper (Terminal)
 
 ```bash
 cd /home/victor/repositories/mission_control
-pip install -r requirements.txt
+
+# Enviar mensaje a Jarvis-QA
+python3 send_agent_message.py \
+  --to Jarvis-QA \
+  --message "Revisa TICKET-002 por favor"
+
+# Con tarea asociada
+python3 send_agent_message.py \
+  --to Jarvis-Dev \
+  --message "Excelente trabajo!" \
+  --task 2
+
+# Ayuda
+python3 send_agent_message.py --help
 ```
 
-### 2. Iniciar backend
+El script te dará el comando `sessions_send` listo para copiar en Clawdbot.
 
-```bash
-python app.py
+### Opción 3: Directo desde Clawdbot
+
+Si ya conoces el label del agente:
+
+```
+sessions_send(label='jarvis-qa', message='Tu mensaje aquí')
 ```
 
-**Output esperado:**
-```
-✅ Agentes iniciales creados: Jarvis-Dev, Jarvis-QA
-🚀 Mission Control Backend running on http://localhost:5001
-```
-
-### 3. Abrir dashboard
-
-Navega a: **http://localhost:5001**
+**Labels disponibles:**
+- `jarvis-dev` → Jarvis-Dev
+- `jarvis-qa` → Jarvis-QA
 
 ---
 
-## 📊 Arquitectura
-
-```
-┌─────────────┐
-│   Browser   │  ← Frontend (HTML/CSS/JS)
-└──────┬──────┘
-       │ HTTP (auto-refresh 5s)
-       ▼
-┌─────────────┐
-│   Flask     │  ← Backend REST API
-└──────┬──────┘
-       │ SQLAlchemy
-       ▼
-┌─────────────┐
-│  SQLite DB  │  ← mission_control.db
-└─────────────┘
-```
-
----
-
-## 🗄️ Database Schema
-
-### `agents`
-- name, role (dev/qa), session_key, status, last_seen_at
-
-### `tasks`
-- title, description, status, priority, assignee_agent_ids, created_by
-
-### `messages`
-- task_id, from_agent, content, attachments, created_at
-
-### `documents`
-- title, content_md, type (code/spec/test/report), task_id
-
-### `notifications`
-- agent_id, content, delivered, created_at
-
----
-
-## 🔌 API Endpoints
+## 📊 API Endpoints
 
 ### Agents
 - `GET /api/agents` - Listar agentes
 - `POST /api/agents` - Crear agente
-- `PUT /api/agents/<id>` - Actualizar estado
+- `PUT /api/agents/:id` - Actualizar agente
 
 ### Tasks
 - `GET /api/tasks` - Listar tareas
 - `POST /api/tasks` - Crear tarea
-- `PUT /api/tasks/<id>` - Actualizar tarea
+- `PUT /api/tasks/:id` - Actualizar tarea
+- `DELETE /api/tasks/:id` - Eliminar tarea
 
 ### Messages
-- `GET /api/messages?task_id=<id>` - Mensajes de tarea
+- `GET /api/messages` - Listar mensajes
 - `POST /api/messages` - Enviar mensaje
 
 ### Documents
-- `GET /api/documents?task_id=<id>` - Documentos
+- `GET /api/documents` - Listar documentos
 - `POST /api/documents` - Crear documento
 
 ### Notifications
-- `GET /api/notifications?unread=true` - Notificaciones
+- `GET /api/notifications` - Listar notificaciones
 - `POST /api/notifications` - Crear notificación
-- `POST /api/notifications/<id>/mark-delivered` - Marcar leída
-
-### Dashboard
-- `GET /api/dashboard` - Resumen completo (agents + tasks + messages)
 
 ---
 
-## 🤖 Uso desde Agentes (Jarvis)
+## 🗂️ Estructura
 
-### Registrar presencia
-
-```python
-import requests
-
-# Actualizar "last seen"
-requests.put('http://localhost:5001/api/agents/1', json={
-    'status': 'working',
-    'last_seen_at': True
-})
 ```
-
-### Crear tarea
-
-```python
-requests.post('http://localhost:5001/api/tasks', json={
-    'title': 'TICKET-001: Pydantic Models',
-    'description': 'Implementar schemas con TDD',
-    'status': 'in_progress',
-    'priority': 'critical',
-    'assignee_agent_ids': '1',  # Jarvis-Dev
-    'created_by': 'Victor'
-})
-```
-
-### Enviar mensaje
-
-```python
-requests.post('http://localhost:5001/api/messages', json={
-    'task_id': 1,
-    'from_agent': 'Jarvis-Dev',
-    'content': '🔴 RED: Tests escritos para DocumentaryScript. Esperando implementación.'
-})
-```
-
-### Crear documento
-
-```python
-requests.post('http://localhost:5001/api/documents', json={
-    'title': 'test_documentary_script.py',
-    'content_md': '```python\n# Test code here\n```',
-    'type': 'test',
-    'task_id': 1
-})
-```
-
-### Notificar a Scrum Master
-
-```python
-requests.post('http://localhost:5001/api/notifications', json={
-    'agent_id': None,  # Para Victor
-    'content': '✅ TICKET-001 completado con 100% coverage'
-})
+mission_control/
+├── app.py                    # Flask app
+├── agent_api.py              # Python client para agentes
+├── send_agent_message.py     # Helper CLI para mensajes
+├── init_db.py                # Database setup
+├── requirements.txt
+├── static/                   # CSS/JS
+├── templates/                # HTML templates
+└── mission_control.db        # SQLite database
 ```
 
 ---
 
-## 🎨 UI/UX
+## 🎯 Workflow Típico
 
-**Colores:**
-- Background: GitHub Dark (`#0d1117`)
-- Panels: `#161b22`
-- Borders: `#30363d`
-- Primary: `#58a6ff` (blue)
-- Success: `#56d364` (green)
-- Warning: `#f0883e` (orange)
-- Error: `#f85149` (red)
-
-**Auto-refresh:** 5 segundos (countdown visible)
-
----
-
-## 📝 Workflow Scrum
-
-1. **Victor (Scrum Master)** crea tareas en el dashboard
-2. **Jarvis-Dev** toma tarea, actualiza status → `in_progress`
-3. **Jarvis-Dev** escribe mensajes reportando avance
-4. **Jarvis-Dev** genera documentos (código, tests)
-5. **Jarvis-Dev** cambia status → `review`
-6. **Jarvis-QA** revisa, ejecuta tests, reporta bugs
-7. **Jarvis-QA** aprueba → status `done` o rechaza → `blocked`
-8. **Victor** monitorea todo en tiempo real
+1. **Jarvis-Dev** crea ticket y empieza trabajo
+2. **Jarvis-Dev** envía updates vía `send_message()`
+3. **Jarvis-Dev** cambia status a "review" y notifica **Jarvis-QA**
+4. **Jarvis-QA** recibe mensaje, ejecuta tests, reporta findings
+5. **Jarvis-Dev** corrige issues, notifica re-review
+6. **Jarvis-QA** aprueba, **Jarvis-Dev** mergea y cierra ticket
+7. **Scrum Master (Victor)** monitorea dashboard en tiempo real
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Backend no arranca
+**Dashboard no carga:**
 ```bash
-# Verificar puerto libre
-lsof -i :5001
+# Verificar que el servidor esté corriendo
+curl http://localhost:5001/api/agents
 
-# Matar proceso si está ocupado
-kill -9 <PID>
+# Ver logs
+tail -f app.log  # (si configuraste logging)
 ```
 
-### Frontend no carga datos
-- Verificar CORS habilitado en Flask
-- Abrir consola del navegador (F12) → ver errores de red
-
-### DB corrupta
+**Base de datos corrupta:**
 ```bash
 rm mission_control.db
-python app.py  # Recrea DB automáticamente
+python3 init_db.py
+```
+
+**Agente no aparece en dashboard:**
+```python
+# Verificar que se creó correctamente
+from agent_api import MissionControlAPI
+api = MissionControlAPI("Jarvis-Dev")
+print(f"Agent ID: {api.agent_id}")
 ```
 
 ---
 
-## 🚀 Próximos Pasos
-
-1. ✅ Dashboard funcional (DONE)
-2. 🔄 Integración con agentes (Jarvis escribe a DB)
-3. 🎨 Mejorar UI (modals para task details)
-4. 📊 Gráficos de velocity/burndown
-5. 🔔 Notificaciones push (WebSockets)
-
----
-
-**Autor:** Jarvis 🤖  
-**Scrum Master:** Victor  
-**Proyecto:** BlackForge MVP
+**Estado:** ✅ v0.1.0 - Funcional  
+**Próximo:** Integración con Clawdbot cron jobs

@@ -48,6 +48,31 @@
             </div>
         </section>
 
+        <!-- Send Message to Agent -->
+        <section class="panel">
+            <h2>✉️ Enviar Mensaje a Agente</h2>
+            <form id="send-message-form" class="message-form">
+                <div class="form-group">
+                    <label for="target-agent">Destinatario:</label>
+                    <select id="target-agent" required>
+                        <option value="">Selecciona un agente...</option>
+                        <option value="jarvis-dev">Jarvis-Dev</option>
+                        <option value="jarvis-qa">Jarvis-QA</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="message-content">Mensaje:</label>
+                    <textarea id="message-content" rows="4" placeholder="Escribe tu mensaje aquí..." required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="task-id-optional">Tarea (opcional):</label>
+                    <input type="number" id="task-id-optional" placeholder="Ej: 2" min="1">
+                </div>
+                <button type="submit" class="btn-send">📤 Enviar Mensaje</button>
+            </form>
+            <div id="send-status" class="send-status"></div>
+        </section>
+
         <!-- Recent Messages -->
         <section class="panel">
             <h2>💬 Comunicación Agentes</h2>

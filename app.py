@@ -186,6 +186,55 @@ def mark_notification_delivered(notif_id):
     return jsonify(notif.to_dict())
 
 
+@app.route('/api/send-agent-message', methods=['POST'])
+def send_agent_message():
+    """
+    Enviar mensaje a un agente via Clawdbot sessions_send
+    
+    Payload:
+    {
+        "target_agent": "jarvis-qa",  // label del agente
+        "message": "Tu mensaje aquí",
+        "task_id": 2  // opcional
+    }
+    
+    Returns:
+    {
+        "status": "queued",
+        "target_agent": "jarvis-qa",
+        "message": "...",
+        "command": "sessions_send(...)"  // comando para ejecutar
+    }
+    """
+    data = request.json
+    target_agent = data.get('target_agent')
+    message_content = data.get('message')
+    task_id = data.get('task_id')
+    
+    if not target_agent or not message_content:
+        return jsonify({'error': 'Missing target_agent or message'}), 400
+    
+    # Log en Mission Control (para historial)
+    message = Message(
+        task_id=task_id,
+        from_agent='Victor',
+        content=f"📤 Enviando a {target_agent}: {message_content[:100]}..."
+    )
+    db.session.add(message)
+    db.session.commit()
+    
+    # Generar comando sessions_send
+    sessions_send_command = f"sessions_send(label='{target_agent}', message='''{message_content}''')"
+    
+    return jsonify({
+        'status': 'queued',
+        'target_agent': target_agent,
+        'message': message_content,
+        'command': sessions_send_command,
+        'info': 'Mensaje preparado. Ejecutar comando en Clawdbot.'
+    }), 200
+
+
 @app.route('/api/dashboard', methods=['GET'])
 def dashboard():
     """Dashboard summary para frontend"""

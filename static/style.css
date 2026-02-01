@@ -299,3 +299,103 @@ header h1 {
     color: #8b949e;
     font-style: italic;
 }
+
+/* Message Form */
+.message-form {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #58a6ff;
+    font-weight: 500;
+}
+
+.form-group select,
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 10px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-family: inherit;
+    font-size: 14px;
+}
+
+.form-group select:focus,
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.btn-send {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-send:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(46, 160, 67, 0.3);
+}
+
+.btn-send:active {
+    transform: translateY(0);
+}
+
+.btn-send:disabled {
+    background: #30363d;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.send-status {
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 500;
+    display: none;
+}
+
+.send-status.success {
+    display: block;
+    background: rgba(46, 160, 67, 0.1);
+    border: 1px solid #2ea043;
+    color: #3fb950;
+}
+
+.send-status.error {
+    display: block;
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid #f85149;
+    color: #f85149;
+}
+
+.send-status.info {
+    display: block;
+    background: rgba(88, 166, 255, 0.1);
+    border: 1px solid #58a6ff;
+    color: #58a6ff;
+}

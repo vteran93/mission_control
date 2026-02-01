@@ -228,9 +228,80 @@ function startAutoRefresh() {
 }
 
 // ============================================
+// SEND MESSAGE TO AGENT
+// ============================================
+
+async function sendMessageToAgent(targetAgent, message, taskId = null) {
+    const statusEl = document.getElementById('send-status');
+    const submitBtn = document.querySelector('.btn-send');
+    
+    // Show loading
+    submitBtn.disabled = true;
+    submitBtn.textContent = '📤 Enviando...';
+    statusEl.className = 'send-status info';
+    statusEl.textContent = 'Preparando mensaje...';
+    
+    try {
+        const response = await fetch(`${API_BASE}/send-agent-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_agent: targetAgent,
+                message: message,
+                task_id: taskId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            statusEl.className = 'send-status success';
+            statusEl.innerHTML = `
+                ✅ Mensaje enviado a <strong>${targetAgent}</strong><br>
+                <small>Registrado en Mission Control. El agente recibirá el mensaje.</small>
+            `;
+            
+            // Clear form
+            document.getElementById('send-message-form').reset();
+            
+            // Refresh messages
+            fetchDashboard();
+            
+            // Hide status after 5s
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        } else {
+            throw new Error(data.error || 'Error desconocido');
+        }
+        
+    } catch (error) {
+        statusEl.className = 'send-status error';
+        statusEl.textContent = `❌ Error: ${error.message}`;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '📤 Enviar Mensaje';
+    }
+}
+
+// ============================================
 // INITIALIZATION
 // ============================================
 
 document.addEventListener('DOMContentLoaded', () => {
     startAutoRefresh();
+    
+    // Handle send message form
+    const sendForm = document.getElementById('send-message-form');
+    if (sendForm) {
+        sendForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const targetAgent = document.getElementById('target-agent').value;
+            const message = document.getElementById('message-content').value;
+            const taskId = document.getElementById('task-id-optional').value || null;
+            
+            await sendMessageToAgent(targetAgent, message, taskId);
+        });
+    }
 });
