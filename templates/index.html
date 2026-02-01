@@ -50,15 +50,16 @@
 
         <!-- Send Message to Agent -->
         <section class="panel">
-            <h2>✉️ Enviar Mensaje a Agente</h2>
+            <h2>✉️ Enviar Mensaje a Agente(s)</h2>
             <form id="send-message-form" class="message-form">
                 <div class="form-group">
-                    <label for="target-agent">Destinatario:</label>
-                    <select id="target-agent" required>
-                        <option value="">Selecciona un agente...</option>
+                    <label for="target-agents">Destinatario(s):</label>
+                    <select id="target-agents" multiple size="3" required>
                         <option value="jarvis-dev">Jarvis-Dev</option>
                         <option value="jarvis-qa">Jarvis-QA</option>
+                        <option value="all">📢 TODOS</option>
                     </select>
+                    <small style="color: #8b949e;">Mantén Ctrl/Cmd para seleccionar múltiples</small>
                 </div>
                 <div class="form-group">
                     <label for="message-content">Mensaje:</label>

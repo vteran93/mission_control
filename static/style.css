@@ -330,6 +330,28 @@ header h1 {
     font-size: 14px;
 }
 
+.form-group select[multiple] {
+    height: auto;
+    padding: 5px;
+}
+
+.form-group select[multiple] option {
+    padding: 8px;
+    border-radius: 4px;
+    margin: 2px 0;
+}
+
+.form-group select[multiple] option:checked {
+    background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
+    color: white;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+}
+
 .form-group select:focus,
 .form-group input:focus,
 .form-group textarea:focus {

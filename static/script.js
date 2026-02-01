@@ -231,7 +231,7 @@ function startAutoRefresh() {
 // SEND MESSAGE TO AGENT
 // ============================================
 
-async function sendMessageToAgent(targetAgent, message, taskId = null) {
+async function sendMessageToAgent(targetAgents, message, taskId = null) {
     const statusEl = document.getElementById('send-status');
     const submitBtn = document.querySelector('.btn-send');
     
@@ -241,24 +241,47 @@ async function sendMessageToAgent(targetAgent, message, taskId = null) {
     statusEl.className = 'send-status info';
     statusEl.textContent = 'Preparando mensaje...';
     
+    // Handle "all" option
+    if (targetAgents.includes('all')) {
+        targetAgents = ['jarvis-dev', 'jarvis-qa'];
+    }
+    
     try {
-        const response = await fetch(`${API_BASE}/send-agent-message`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                target_agent: targetAgent,
-                message: message,
-                task_id: taskId
-            })
-        });
+        let successCount = 0;
+        let errors = [];
         
-        const data = await response.json();
+        // Send to each agent
+        for (const targetAgent of targetAgents) {
+            try {
+                const response = await fetch(`${API_BASE}/send-agent-message`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_agent: targetAgent,
+                        message: message,
+                        task_id: taskId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    errors.push(`${targetAgent}: ${data.error || 'Error desconocido'}`);
+                }
+            } catch (err) {
+                errors.push(`${targetAgent}: ${err.message}`);
+            }
+        }
         
-        if (response.ok) {
+        // Show results
+        if (successCount > 0 && errors.length === 0) {
             statusEl.className = 'send-status success';
+            const agentList = targetAgents.join(', ');
             statusEl.innerHTML = `
-                ✅ Mensaje enviado a <strong>${targetAgent}</strong><br>
-                <small>Registrado en Mission Control. El agente recibirá el mensaje.</small>
+                ✅ Mensaje enviado a <strong>${successCount}</strong> agente(s): ${agentList}<br>
+                <small>Los mensajes serán entregados automáticamente en el próximo heartbeat.</small>
             `;
             
             // Clear form
@@ -271,8 +294,14 @@ async function sendMessageToAgent(targetAgent, message, taskId = null) {
             setTimeout(() => {
                 statusEl.style.display = 'none';
             }, 5000);
+        } else if (successCount > 0 && errors.length > 0) {
+            statusEl.className = 'send-status info';
+            statusEl.innerHTML = `
+                ⚠️ Enviado a ${successCount} agente(s), ${errors.length} fallaron:<br>
+                <small>${errors.join('<br>')}</small>
+            `;
         } else {
-            throw new Error(data.error || 'Error desconocido');
+            throw new Error(errors.join('; '));
         }
         
     } catch (error) {
@@ -297,11 +326,17 @@ document.addEventListener('DOMContentLoaded', () => {
         sendForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const targetAgent = document.getElementById('target-agent').value;
+            const selectEl = document.getElementById('target-agents');
+            const targetAgents = Array.from(selectEl.selectedOptions).map(opt => opt.value);
             const message = document.getElementById('message-content').value;
             const taskId = document.getElementById('task-id-optional').value || null;
             
-            await sendMessageToAgent(targetAgent, message, taskId);
+            if (targetAgents.length === 0) {
+                alert('Selecciona al menos un destinatario');
+                return;
+            }
+            
+            await sendMessageToAgent(targetAgents, message, taskId);
         });
     }
 });
