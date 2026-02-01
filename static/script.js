@@ -1,4 +1,5 @@
 // script.js - Mission Control Frontend Logic
+console.log('🚀 Mission Control JS loaded at:', new Date().toISOString());
 const API_BASE = 'http://localhost:5001/api';
 let refreshInterval;
 let countdown = 5;
@@ -8,13 +9,16 @@ let countdown = 5;
 // ============================================
 
 async function fetchDashboard() {
+    console.log('📊 fetchDashboard() llamado');
     try {
         const response = await fetch(`${API_BASE}/dashboard`);
         const data = await response.json();
+        console.log('✅ Dashboard data:', data);
         
         renderAgents(data.agents);
         renderTasksSummary(data.tasks_summary);
         renderRecentMessages(data.recent_messages);
+        populateAgentSelect(data.agents);  // NEW: Popular dropdown de destinatarios
         
         document.getElementById('notif-count').textContent = data.unread_notifications;
         
@@ -24,7 +28,7 @@ async function fetchDashboard() {
         fetchDocuments();
         
     } catch (error) {
-        console.error('Error fetching dashboard:', error);
+        console.error('❌ Error fetching dashboard:', error);
     }
 }
 
@@ -82,7 +86,9 @@ async function fetchDocuments() {
 // ============================================
 
 function renderAgents(agents) {
+    console.log('🤖 renderAgents() llamado con:', agents);
     const container = document.getElementById('agents-list');
+    console.log('📦 Container:', container);
     
     if (agents.length === 0) {
         container.innerHTML = '<div class="empty-state">No hay agentes registrados</div>';
@@ -97,6 +103,39 @@ function renderAgents(agents) {
             <div class="last-seen">Última vez: ${formatTime(agent.last_seen_at)}</div>
         </div>
     `).join('');
+    console.log('✅ Agentes renderizados');
+}
+
+function populateAgentSelect(agents) {
+    console.log('📝 populateAgentSelect() llamado con:', agents);
+    const selectEl = document.getElementById('target-agents');
+    
+    if (!selectEl) {
+        console.warn('⚠️ Select element not found');
+        return;
+    }
+    
+    // Clear existing options
+    selectEl.innerHTML = '';
+    
+    // Add agents (exclude Victor)
+    agents
+        .filter(agent => agent.name !== 'Victor')
+        .forEach(agent => {
+            const option = document.createElement('option');
+            const label = agent.name.toLowerCase().replace(' ', '-');
+            option.value = label;
+            option.textContent = agent.name;
+            selectEl.appendChild(option);
+        });
+    
+    // Add "TODOS" option
+    const allOption = document.createElement('option');
+    allOption.value = 'all';
+    allOption.textContent = '📢 TODOS';
+    selectEl.appendChild(allOption);
+    
+    console.log('✅ Agent select populated with', selectEl.options.length, 'options');
 }
 
 function renderTaskColumn(status, tasks) {
@@ -243,7 +282,7 @@ async function sendMessageToAgent(targetAgents, message, taskId = null) {
     
     // Handle "all" option
     if (targetAgents.includes('all')) {
-        targetAgents = ['jarvis-dev', 'jarvis-qa'];
+        targetAgents = ['jarvis-pm', 'jarvis-dev', 'jarvis-qa'];
     }
     
     try {

@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mission Control - Scrum Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="/static/style.css?v={{ cache_bust }}">
 </head>
 <body>
     <div class="container">
@@ -54,7 +57,8 @@
             <form id="send-message-form" class="message-form">
                 <div class="form-group">
                     <label for="target-agents">Destinatario(s):</label>
-                    <select id="target-agents" multiple size="3" required>
+                    <select id="target-agents" multiple size="4" required>
+                        <option value="jarvis-pm">Jarvis-PM</option>
                         <option value="jarvis-dev">Jarvis-Dev</option>
                         <option value="jarvis-qa">Jarvis-QA</option>
                         <option value="all">📢 TODOS</option>
@@ -99,6 +103,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v={{ cache_bust }}"></script>
 </body>
 </html>

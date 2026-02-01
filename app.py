@@ -4,6 +4,8 @@ from flask_cors import CORS
 from database import db, Agent, Task, Message, Document, Notification
 from datetime import datetime
 import os
+import subprocess
+import threading
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mission_control.db'
@@ -14,13 +16,54 @@ db.init_app(app)
 
 
 # ============================================
+# AGENT WAKE-UP LOGIC
+# ============================================
+
+import fcntl
+import tempfile
+
+def trigger_agent_wake(agent_label):
+    """Trigger agent heartbeat script asynchronously with lock"""
+    def run_heartbeat():
+        lock_file = f"/home/victor/clawd/agents/{agent_label}/locks/heartbeat.lock"
+        
+        # Try to acquire lock
+        try:
+            with open(lock_file, 'w') as lock:
+                # Non-blocking lock
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                
+                # Lock acquired, run heartbeat
+                script_path = f"/home/victor/.local/bin/{agent_label}-heartbeat.sh"
+                if os.path.exists(script_path):
+                    try:
+                        subprocess.run(['/bin/bash', script_path], timeout=60)
+                    except Exception as e:
+                        print(f"Error triggering {agent_label}: {e}")
+                
+                # Lock automatically released when file closes
+        except BlockingIOError:
+            # Another process is already running
+            print(f"{agent_label} already running, skipping")
+        except Exception as e:
+            print(f"Error with lock for {agent_label}: {e}")
+    
+    # Run in background thread to not block API response
+    thread = threading.Thread(target=run_heartbeat)
+    thread.daemon = True
+    thread.start()
+
+
+# ============================================
 # API ENDPOINTS
 # ============================================
 
 @app.route('/')
 def index():
     """Dashboard principal"""
-    return render_template('index.html')
+    import time
+    cache_bust = int(time.time())
+    return render_template('index.html', cache_bust=cache_bust)
 
 
 @app.route('/api/agents', methods=['GET', 'POST'])
@@ -127,6 +170,16 @@ def messages():
         )
         db.session.add(message)
         db.session.commit()
+        
+        # Trigger agent wake-up if message mentions them
+        content_lower = data['content'].lower()
+        if 'jarvis-pm' in content_lower:
+            trigger_agent_wake('jarvis-pm')
+        if 'jarvis-dev' in content_lower:
+            trigger_agent_wake('jarvis-dev')
+        if 'jarvis-qa' in content_lower:
+            trigger_agent_wake('jarvis-qa')
+        
         return jsonify(message.to_dict()), 201
 
 
