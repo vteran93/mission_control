@@ -218,21 +218,90 @@ def send_agent_message():
     message = Message(
         task_id=task_id,
         from_agent='Victor',
-        content=f"📤 Enviando a {target_agent}: {message_content[:100]}..."
+        content=f"📤 → {target_agent}: {message_content}"
     )
     db.session.add(message)
     db.session.commit()
     
-    # Generar comando sessions_send
+    # Escribir a archivo para que Clawdbot lo procese (polling simple)
+    queue_dir = os.path.expanduser('~/clawd/mission_control_queue')
+    os.makedirs(queue_dir, exist_ok=True)
+    
+    import uuid
+    message_id = str(uuid.uuid4())[:8]
+    message_file = os.path.join(queue_dir, f"{message_id}_{target_agent}.json")
+    
+    import json
+    with open(message_file, 'w') as f:
+        json.dump({
+            'target_agent': target_agent,
+            'message': message_content,
+            'task_id': task_id,
+            'timestamp': datetime.utcnow().isoformat()
+        }, f, indent=2)
+    
+    # Generar comando sessions_send (por si falla el polling)
     sessions_send_command = f"sessions_send(label='{target_agent}', message='''{message_content}''')"
     
     return jsonify({
         'status': 'queued',
         'target_agent': target_agent,
         'message': message_content,
-        'command': sessions_send_command,
-        'info': 'Mensaje preparado. Ejecutar comando en Clawdbot.'
+        'message_id': message_id,
+        'info': 'Mensaje en cola. Clawdbot lo procesará automáticamente.'
     }), 200
+
+
+@app.route('/api/message-queue', methods=['GET'])
+def get_message_queue():
+    """
+    Obtener mensajes pendientes de envío (para que Clawdbot los procese)
+    
+    Returns:
+    [
+        {
+            "message_id": "abc123",
+            "target_agent": "jarvis-qa",
+            "message": "...",
+            "task_id": 2,
+            "timestamp": "..."
+        }
+    ]
+    """
+    queue_dir = os.path.expanduser('~/clawd/mission_control_queue')
+    os.makedirs(queue_dir, exist_ok=True)
+    
+    import json
+    import glob
+    
+    messages = []
+    for filepath in glob.glob(os.path.join(queue_dir, '*.json')):
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+                data['message_id'] = os.path.basename(filepath).replace('.json', '')
+                data['filepath'] = filepath
+                messages.append(data)
+        except Exception as e:
+            print(f"Error reading {filepath}: {e}")
+    
+    return jsonify(messages)
+
+
+@app.route('/api/message-queue/<message_id>', methods=['DELETE'])
+def delete_queued_message(message_id):
+    """Eliminar mensaje de la cola (después de procesarlo)"""
+    queue_dir = os.path.expanduser('~/clawd/mission_control_queue')
+    
+    import glob
+    for filepath in glob.glob(os.path.join(queue_dir, f"{message_id}_*.json")):
+        try:
+            os.remove(filepath)
+            return jsonify({'status': 'deleted', 'message_id': message_id})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    return jsonify({'error': 'Message not found'}), 404
 
 
 @app.route('/api/dashboard', methods=['GET'])
