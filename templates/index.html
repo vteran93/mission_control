@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mission Control - Scrum Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Mission Control - BlackForge MVP</h1>
+            <p class="subtitle">Scrum Master: Victor | Auto-refresh: <span id="refresh-countdown">5</span>s</p>
+        </header>
+
+        <!-- Agents Status -->
+        <section class="panel">
+            <h2>🤖 Agentes</h2>
+            <div id="agents-list" class="agents-grid">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- Tasks Board (Kanban-style) -->
+        <section class="panel">
+            <h2>📋 Sprint Backlog</h2>
+            <div class="kanban-board">
+                <div class="kanban-column">
+                    <h3>📝 TODO</h3>
+                    <div id="tasks-todo" class="task-list"></div>
+                </div>
+                <div class="kanban-column">
+                    <h3>🔨 IN PROGRESS</h3>
+                    <div id="tasks-in_progress" class="task-list"></div>
+                </div>
+                <div class="kanban-column">
+                    <h3>👀 REVIEW</h3>
+                    <div id="tasks-review" class="task-list"></div>
+                </div>
+                <div class="kanban-column">
+                    <h3>✅ DONE</h3>
+                    <div id="tasks-done" class="task-list"></div>
+                </div>
+                <div class="kanban-column blocked">
+                    <h3>🚫 BLOCKED</h3>
+                    <div id="tasks-blocked" class="task-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recent Messages -->
+        <section class="panel">
+            <h2>💬 Comunicación Agentes</h2>
+            <div id="messages-list" class="messages-container">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- Notifications -->
+        <section class="panel">
+            <h2>🔔 Notificaciones (<span id="notif-count">0</span>)</h2>
+            <div id="notifications-list" class="notifications-container">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- Documents -->
+        <section class="panel">
+            <h2>📄 Documentos Generados</h2>
+            <div id="documents-list" class="documents-grid">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
