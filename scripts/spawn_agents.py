@@ -8,14 +8,18 @@ import sys
 import time
 from pathlib import Path
 
+# Detectar ubicación de Mission Control
+MISSION_CONTROL_DIR = Path(__file__).parent.parent
+IDENTITY_DIR = MISSION_CONTROL_DIR / "config" / "agents"
+
 AGENTS = {
     "jarvis-dev": {
         "name": "Jarvis-Dev",
         "role": "Python Senior Developer (15+ años experiencia)",
-        "identity_file": "~/clawd/IDENTITY.md",
+        "identity_file": str(IDENTITY_DIR / "IDENTITY_JARVIS_DEV.md"),
         "task": """You are Jarvis-Dev, Python Senior Developer with 15+ years of experience.
 
-Read ~/clawd/IDENTITY.md for your complete identity and responsibilities.
+Read your identity file for complete responsibilities (in Mission Control config/agents/).
 
 ## Your Role:
 - Implement tickets assigned by Jarvis (Project Owner) via Mission Control API
@@ -37,10 +41,10 @@ Check Mission Control for pending work and start immediately when assigned."""
     "jarvis-qa": {
         "name": "Jarvis-QA",
         "role": "Quality Assurance Engineer",
-        "identity_file": "~/clawd/IDENTITY.md",
+        "identity_file": str(IDENTITY_DIR / "IDENTITY_JARVIS_QA.md"),
         "task": """You are Jarvis-QA, Quality Assurance Engineer.
 
-Read ~/clawd/IDENTITY.md for your complete identity and responsibilities.
+Read your identity file for complete responsibilities (in Mission Control config/agents/).
 
 ## Your Role:
 - Review code when Dev posts [QA READY]

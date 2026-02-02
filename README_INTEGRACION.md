@@ -365,14 +365,51 @@ UPDATE tasks SET status='completed' WHERE id=X
 
 ---
 
+## Instalación - Integrar con Cualquier Clawdbot
+
+Mission Control es **portable** y se puede integrar con cualquier instalación de Clawdbot.
+
+### Requisitos Previos
+
+1. **Clawdbot instalado** (cualquier versión reciente)
+   ```bash
+   clawdbot --version  # Verificar instalación
+   ```
+
+2. **Python 3.10+**
+   ```bash
+   python3 --version
+   ```
+
+3. **Git** (para clonar y version control)
+
+---
+
 ## Configuración Inicial
 
 ### Paso 1: Clonar Mission Control
 
 ```bash
-cd ~/repositories
+cd ~/repositories  # O cualquier directorio
 git clone <mission-control-repo-url>
 cd mission_control
+```
+
+**Estructura de directorios:**
+```
+mission_control/
+├── config/
+│   └── agents/                # Identidades de agentes (portables)
+│       ├── IDENTITY_JARVIS_DEV.md
+│       └── IDENTITY_JARVIS_QA.md
+├── scripts/
+│   └── spawn_agents.py        # Script de inicialización
+├── daemon/
+│   ├── agent_daemon.py        # Daemon de polling
+│   └── config.json            # Configuración de daemons
+├── app.py                     # Flask API
+├── database.py                # SQLite models
+└── README_INTEGRACION.md      # Esta guía
 ```
 
 ### Paso 2: Instalar Dependencias
@@ -414,7 +451,11 @@ cd ~/repositories/mission_control
 python3 scripts/spawn_agents.py
 ```
 
-Esto crea sesiones persistentes de `jarvis-dev` y `jarvis-qa`.
+Este script:
+- Lee identidades desde `config/agents/IDENTITY_JARVIS_*.md`
+- Crea sesiones persistentes con labels `jarvis-dev` y `jarvis-qa`
+- Verifica si ya existen (evita duplicados)
+- Muestra comandos de verificación post-spawn
 
 **Opción B: Manual (vía Clawdbot CLI)**
 
@@ -423,14 +464,16 @@ Esto crea sesiones persistentes de `jarvis-dev` y `jarvis-qa`.
 clawdbot sessions spawn \
   --label jarvis-dev \
   --cleanup keep \
-  --task "You are Jarvis-Dev, Python Senior Developer..."
+  --task "You are Jarvis-Dev, Python Senior Developer. Read your identity file in Mission Control config/agents/ for complete responsibilities. Monitor Mission Control API (http://localhost:5001/api/messages) for assignments. When assigned, implement with TDD, post [QA READY] when done."
 
 # Spawn Jarvis-QA
 clawdbot sessions spawn \
   --label jarvis-qa \
   --cleanup keep \
-  --task "You are Jarvis-QA, Quality Assurance Engineer..."
+  --task "You are Jarvis-QA, Quality Assurance Engineer. Read your identity file in Mission Control config/agents/ for complete responsibilities. Monitor Mission Control for [QA READY] messages, execute review, post verdict (APPROVED/REJECTED/CONDITIONAL)."
 ```
+
+**Importante:** Las identidades completas están en `config/agents/IDENTITY_*.md`, **no necesitas tener archivos en `~/clawd/`**. Mission Control es **self-contained**.
 
 **Verificar sesiones creadas:**
 
@@ -824,6 +867,83 @@ curl -s http://localhost:5001/api/messages | jq '.[-5:] | .[] | {from: .from_age
    - Tiempo promedio por ticket
    - Tasks completados/día
    - Test coverage trend
+
+---
+
+## 🔄 Portabilidad - Integrar con Otro Clawdbot
+
+Mission Control es **completamente portable** y no depende de configuraciones específicas de tu workspace Clawdbot.
+
+### ✅ Lo que Mission Control incluye (self-contained):
+
+- ✅ **Identidades de agentes** (`config/agents/IDENTITY_*.md`)
+- ✅ **Script de spawn** (`scripts/spawn_agents.py`)
+- ✅ **Base de datos** (SQLite, se crea automáticamente)
+- ✅ **Daemons** (polling system)
+- ✅ **Flask API** (backend)
+
+### ❌ Lo que NO necesitas:
+
+- ❌ Archivos en `~/clawd/` específicos de tu setup
+- ❌ Configuraciones hardcoded
+- ❌ Modificar Clawdbot core
+
+### Cómo Integrar con Otra Instalación
+
+**Paso 1: Clonar en cualquier máquina**
+```bash
+git clone <mission-control-repo>
+cd mission_control
+```
+
+**Paso 2: Instalar dependencias**
+```bash
+pip install flask requests pyyaml
+```
+
+**Paso 3: Verificar Clawdbot funciona**
+```bash
+clawdbot --version
+clawdbot sessions list  # Debería listar sesiones (o estar vacío)
+```
+
+**Paso 4: Inicializar agentes**
+```bash
+python3 scripts/spawn_agents.py
+```
+
+**Paso 5: Start Mission Control**
+```bash
+python3 init_db.py  # Crear DB si no existe
+export FLASK_APP=app.py
+flask run --port 5001 &
+
+# Start daemons
+python3 daemon/agent_daemon.py dev &
+python3 daemon/agent_daemon.py qa &
+```
+
+**Listo.** Mission Control funciona con cualquier Clawdbot.
+
+### Personalizar Identidades de Agentes
+
+Si quieres cambiar comportamiento de Jarvis-Dev o Jarvis-QA:
+
+1. Edita `config/agents/IDENTITY_JARVIS_DEV.md`
+2. Modifica secciones (tech stack, workflow, etc)
+3. Re-spawn agentes: `python3 scripts/spawn_agents.py`
+
+**Ejemplo de customización:**
+```markdown
+# En IDENTITY_JARVIS_DEV.md
+
+**Stack técnico:**
+- **Languages:** Python 3.12+, TypeScript, Go  ← Agrega tus lenguajes
+- **Frameworks:** Django, Next.js, gRPC        ← Tus frameworks
+- **Testing:** pytest, vitest, k6             ← Tus tools de testing
+```
+
+Commit cambios y pushea para compartir con equipo.
 
 ---
 
