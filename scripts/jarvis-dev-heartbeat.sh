@@ -1,5 +1,5 @@
 #!/bin/bash
-# Jarvis-Dev Direct Heartbeat
+# Jarvis-Dev Notification Heartbeat (notifies main Jarvis to spawn sub-agent)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(dirname "$SCRIPT_DIR")"
@@ -8,14 +8,14 @@ TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
-echo "[$TIMESTAMP] Jarvis-Dev direct heartbeat..." >> "$LOG_FILE"
+echo "[$TIMESTAMP] Jarvis-Dev notification heartbeat..." >> "$LOG_FILE"
 
-python3 "$SCRIPT_DIR/jarvis-dev-direct.py" >> "$LOG_FILE" 2>&1
+python3 "$SCRIPT_DIR/jarvis-dev-notify.py" >> "$LOG_FILE" 2>&1
 
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
-  echo "[$TIMESTAMP] ✅ Direct heartbeat OK" >> "$LOG_FILE"
+  echo "[$TIMESTAMP] ✅ Notification heartbeat OK" >> "$LOG_FILE"
 else
-  echo "[$TIMESTAMP] ❌ Direct heartbeat failed: $EXIT_CODE" >> "$LOG_FILE"
+  echo "[$TIMESTAMP] ❌ Notification heartbeat failed: $EXIT_CODE" >> "$LOG_FILE"
 fi
