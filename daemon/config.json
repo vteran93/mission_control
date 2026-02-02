@@ -1,0 +1,26 @@
+{
+  "db_path": "instance/mission_control.db",
+  "polling_interval_seconds": 10,
+  "heartbeat_timeout_seconds": 60,
+  "log_level": "INFO",
+  "agents": {
+    "pm": {
+      "name": "Jarvis-PM",
+      "heartbeat_script": "/home/victor/.local/bin/jarvis-pm-heartbeat.sh",
+      "state_file": "daemon/state/pm-state.json",
+      "log_file": "logs/daemons/pm-daemon.log"
+    },
+    "dev": {
+      "name": "Jarvis-Dev",
+      "heartbeat_script": "/home/victor/.local/bin/jarvis-dev-heartbeat.sh",
+      "state_file": "daemon/state/dev-state.json",
+      "log_file": "logs/daemons/dev-daemon.log"
+    },
+    "qa": {
+      "name": "Jarvis-QA",
+      "heartbeat_script": "/home/victor/.local/bin/jarvis-qa-heartbeat.sh",
+      "state_file": "daemon/state/qa-state.json",
+      "log_file": "logs/daemons/qa-daemon.log"
+    }
+  }
+}
