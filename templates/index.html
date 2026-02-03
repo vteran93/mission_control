@@ -26,27 +26,36 @@
 
         <!-- Tasks Board (Kanban-style) -->
         <section class="panel">
-            <h2>📋 Sprint Backlog</h2>
+            <div class="section-header">
+                <h2>📋 Sprint Backlog</h2>
+                <div class="sprint-filter">
+                    <label for="sprint-select">Sprint:</label>
+                    <select id="sprint-select" onchange="filterBySprint()">
+                        <option value="">Todos los sprints</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+            </div>
             <div class="kanban-board">
-                <div class="kanban-column">
+                <div class="kanban-column" data-status="todo">
                     <h3>📝 TODO</h3>
-                    <div id="tasks-todo" class="task-list"></div>
+                    <div id="tasks-todo" class="task-list" data-status="todo"></div>
                 </div>
-                <div class="kanban-column">
+                <div class="kanban-column" data-status="in_progress">
                     <h3>🔨 IN PROGRESS</h3>
-                    <div id="tasks-in_progress" class="task-list"></div>
+                    <div id="tasks-in_progress" class="task-list" data-status="in_progress"></div>
                 </div>
-                <div class="kanban-column">
+                <div class="kanban-column" data-status="review">
                     <h3>👀 REVIEW</h3>
-                    <div id="tasks-review" class="task-list"></div>
+                    <div id="tasks-review" class="task-list" data-status="review"></div>
                 </div>
-                <div class="kanban-column">
+                <div class="kanban-column" data-status="done">
                     <h3>✅ DONE</h3>
-                    <div id="tasks-done" class="task-list"></div>
+                    <div id="tasks-done" class="task-list" data-status="done"></div>
                 </div>
-                <div class="kanban-column blocked">
+                <div class="kanban-column blocked" data-status="blocked">
                     <h3>🚫 BLOCKED</h3>
-                    <div id="tasks-blocked" class="task-list"></div>
+                    <div id="tasks-blocked" class="task-list" data-status="blocked"></div>
                 </div>
             </div>
         </section>
@@ -141,6 +150,66 @@
                 <!-- Populated by JS -->
             </div>
         </section>
+    </div>
+
+    <!-- Task Detail Modal -->
+    <div id="task-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-task-title">Task Detail</h2>
+                <button class="modal-close" onclick="closeTaskModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="task-detail-grid">
+                    <div class="detail-section">
+                        <label>ID:</label>
+                        <span id="modal-task-id"></span>
+                    </div>
+                    <div class="detail-section">
+                        <label>Sprint:</label>
+                        <span id="modal-task-sprint"></span>
+                    </div>
+                    <div class="detail-section">
+                        <label>Status:</label>
+                        <select id="modal-task-status" onchange="updateTaskFromModal()">
+                            <option value="todo">📝 TODO</option>
+                            <option value="in_progress">🔨 IN PROGRESS</option>
+                            <option value="review">👀 REVIEW</option>
+                            <option value="done">✅ DONE</option>
+                            <option value="blocked">🚫 BLOCKED</option>
+                        </select>
+                    </div>
+                    <div class="detail-section">
+                        <label>Priority:</label>
+                        <select id="modal-task-priority" onchange="updateTaskFromModal()">
+                            <option value="low">🟢 Low</option>
+                            <option value="medium">🟡 Medium</option>
+                            <option value="high">🟠 High</option>
+                            <option value="critical">🔴 Critical</option>
+                        </select>
+                    </div>
+                    <div class="detail-section full-width">
+                        <label>Assignee:</label>
+                        <span id="modal-task-assignee"></span>
+                    </div>
+                    <div class="detail-section full-width">
+                        <label>Created:</label>
+                        <span id="modal-task-created"></span>
+                    </div>
+                    <div class="detail-section full-width">
+                        <label>Updated:</label>
+                        <span id="modal-task-updated"></span>
+                    </div>
+                    <div class="detail-section full-width description">
+                        <label>Description:</label>
+                        <div id="modal-task-description" class="description-box"></div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-primary" onclick="closeTaskModal()">Cerrar</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/script.js?v={{ cache_bust }}"></script>

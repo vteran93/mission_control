@@ -1,7 +1,7 @@
 # app.py - Flask Backend para Mission Control
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
-from database import db, Agent, Task, Message, Document, Notification, DaemonLog, TaskQueue
+from database import db, Agent, Task, Message, Document, Notification, DaemonLog, TaskQueue, Sprint
 from datetime import datetime
 import os
 import subprocess
@@ -106,9 +106,14 @@ def tasks():
     """Listar o crear tareas"""
     if request.method == 'GET':
         status_filter = request.args.get('status')
+        sprint_filter = request.args.get('sprint_id', type=int)
+        
         query = Task.query
         if status_filter:
             query = query.filter_by(status=status_filter)
+        if sprint_filter:
+            query = query.filter_by(sprint_id=sprint_filter)
+            
         tasks = query.order_by(Task.created_at.desc()).all()
         return jsonify([t.to_dict() for t in tasks])
     
@@ -120,6 +125,7 @@ def tasks():
             status=data.get('status', 'todo'),
             priority=data.get('priority', 'medium'),
             assignee_agent_ids=data.get('assignee_agent_ids', ''),
+            sprint_id=data.get('sprint_id'),
             created_by=data.get('created_by', 'Victor')
         )
         db.session.add(task)
@@ -143,10 +149,59 @@ def task_detail(task_id):
             task.assignee_agent_ids = data['assignee_agent_ids']
         if 'priority' in data:
             task.priority = data['priority']
+        if 'sprint_id' in data:
+            task.sprint_id = data['sprint_id']
         
         task.updated_at = datetime.utcnow()
         db.session.commit()
         return jsonify(task.to_dict())
+
+
+@app.route('/api/sprints', methods=['GET', 'POST'])
+def sprints():
+    """Listar o crear sprints"""
+    if request.method == 'GET':
+        sprints = Sprint.query.order_by(Sprint.created_at.desc()).all()
+        return jsonify([s.to_dict() for s in sprints])
+    
+    elif request.method == 'POST':
+        data = request.json
+        sprint = Sprint(
+            name=data['name'],
+            goal=data.get('goal', ''),
+            start_date=datetime.fromisoformat(data['start_date']) if data.get('start_date') else None,
+            end_date=datetime.fromisoformat(data['end_date']) if data.get('end_date') else None,
+            status=data.get('status', 'active')
+        )
+        db.session.add(sprint)
+        db.session.commit()
+        return jsonify(sprint.to_dict()), 201
+
+
+@app.route('/api/sprints/<int:sprint_id>', methods=['GET', 'PUT'])
+def sprint_detail(sprint_id):
+    """Obtener o actualizar sprint"""
+    sprint = Sprint.query.get_or_404(sprint_id)
+    
+    if request.method == 'GET':
+        # Include tasks in response
+        tasks = Task.query.filter_by(sprint_id=sprint_id).all()
+        sprint_dict = sprint.to_dict()
+        sprint_dict['tasks'] = [t.to_dict() for t in tasks]
+        sprint_dict['task_count'] = len(tasks)
+        return jsonify(sprint_dict)
+    
+    elif request.method == 'PUT':
+        data = request.json
+        if 'status' in data:
+            sprint.status = data['status']
+        if 'name' in data:
+            sprint.name = data['name']
+        if 'goal' in data:
+            sprint.goal = data['goal']
+        
+        db.session.commit()
+        return jsonify(sprint.to_dict())
 
 
 @app.route('/api/messages', methods=['GET', 'POST'])

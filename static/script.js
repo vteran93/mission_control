@@ -1,8 +1,11 @@
-// script.js - Mission Control Frontend Logic
+// script.js - Mission Control Frontend Logic (Enhanced with Drag & Drop + Task Modal + Sprint Filter)
 console.log('🚀 Mission Control JS loaded at:', new Date().toISOString());
 const API_BASE = 'http://localhost:5001/api';
 let refreshInterval;
 let countdown = 5;
+let currentTaskId = null; // For modal
+let currentSprintFilter = ''; // For sprint filtering
+let allTasks = []; // Cache all tasks
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -19,6 +22,18 @@ function escapeHtml(text) {
     return text.replace(/[&<>"']/g, m => map[m]);
 }
 
+function formatDate(isoString) {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleString('es-CO', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
 // ============================================
 // DATA FETCHING
 // ============================================
@@ -33,12 +48,13 @@ async function fetchDashboard() {
         renderAgents(data.agents);
         renderTasksSummary(data.tasks_summary);
         renderRecentMessages(data.recent_messages);
-        populateAgentSelect(data.agents);  // NEW: Popular dropdown de destinatarios
+        populateAgentSelect(data.agents);
         
         document.getElementById('notif-count').textContent = data.unread_notifications;
         
         // Fetch detailed data
-        fetchTasks();
+        await fetchSprints();
+        await fetchTasks();
         fetchNotifications();
         fetchDocuments();
         
@@ -47,10 +63,39 @@ async function fetchDashboard() {
     }
 }
 
+async function fetchSprints() {
+    try {
+        const response = await fetch(`${API_BASE}/sprints`);
+        const sprints = await response.json();
+        
+        const sprintSelect = document.getElementById('sprint-select');
+        sprintSelect.innerHTML = '<option value="">Todos los sprints</option>';
+        
+        sprints.forEach(sprint => {
+            const option = document.createElement('option');
+            option.value = sprint.id;
+            option.textContent = `${sprint.name} (${sprint.status})`;
+            if (sprint.status === 'active') {
+                option.selected = true;
+                currentSprintFilter = sprint.id.toString();
+            }
+            sprintSelect.appendChild(option);
+        });
+        
+    } catch (error) {
+        console.error('Error fetching sprints:', error);
+    }
+}
+
 async function fetchTasks() {
     try {
-        const response = await fetch(`${API_BASE}/tasks`);
+        const url = currentSprintFilter 
+            ? `${API_BASE}/tasks?sprint_id=${currentSprintFilter}`
+            : `${API_BASE}/tasks`;
+            
+        const response = await fetch(url);
         const tasks = await response.json();
+        allTasks = tasks; // Cache for filtering
         
         // Group by status
         const tasksByStatus = {
@@ -101,270 +146,435 @@ async function fetchDocuments() {
 // ============================================
 
 function renderAgents(agents) {
-    console.log('🤖 renderAgents() llamado con:', agents);
     const container = document.getElementById('agents-list');
-    console.log('📦 Container:', container);
-    
-    if (agents.length === 0) {
-        container.innerHTML = '<div class="empty-state">No hay agentes registrados</div>';
-        return;
-    }
-    
     container.innerHTML = agents.map(agent => `
-        <div class="agent-card">
-            <div class="name">🤖 ${agent.name}</div>
-            <div class="role">${agent.role.toUpperCase()}</div>
-            <div class="status ${agent.status}">${agent.status.toUpperCase()}</div>
-            <div class="last-seen">Última vez: ${formatTime(agent.last_seen_at)}</div>
+        <div class="agent-card status-${agent.status}">
+            <div class="agent-name">${escapeHtml(agent.name)}</div>
+            <div class="agent-role">${escapeHtml(agent.role)}</div>
+            <div class="agent-status">${getStatusEmoji(agent.status)} ${agent.status}</div>
         </div>
     `).join('');
-    console.log('✅ Agentes renderizados');
 }
 
-function populateAgentSelect(agents) {
-    console.log('📝 populateAgentSelect() llamado con:', agents);
-    const selectEl = document.getElementById('target-agents');
-    
-    if (!selectEl) {
-        console.warn('⚠️ Select element not found');
-        return;
-    }
-    
-    // Clear existing options
-    selectEl.innerHTML = '';
-    
-    // Add agents (exclude Victor)
-    agents
-        .filter(agent => agent.name !== 'Victor')
-        .forEach(agent => {
-            const option = document.createElement('option');
-            const label = agent.name.toLowerCase().replace(' ', '-');
-            option.value = label;
-            option.textContent = agent.name;
-            selectEl.appendChild(option);
-        });
-    
-    // Add "TODOS" option
-    const allOption = document.createElement('option');
-    allOption.value = 'all';
-    allOption.textContent = '📢 TODOS';
-    selectEl.appendChild(allOption);
-    
-    console.log('✅ Agent select populated with', selectEl.options.length, 'options');
+function getStatusEmoji(status) {
+    const emojiMap = {
+        'idle': '😴',
+        'working': '⚡',
+        'blocked': '🚫',
+        'offline': '💤'
+    };
+    return emojiMap[status] || '❓';
+}
+
+function renderTasksSummary(summary) {
+    // This is already handled by renderTaskColumn
 }
 
 function renderTaskColumn(status, tasks) {
     const container = document.getElementById(`tasks-${status}`);
+    if (!container) return;
     
-    if (tasks.length === 0) {
-        container.innerHTML = '<div class="empty-state" style="padding: 10px; font-size: 0.8em;">Sin tareas</div>';
-        return;
-    }
+    container.innerHTML = tasks.map(task => createTaskCard(task)).join('');
     
-    container.innerHTML = tasks.map(task => `
-        <div class="task-card priority-${task.priority}" onclick="showTaskDetail(${task.id})">
-            <div class="title">${task.title}</div>
-            <div class="meta">
-                Prioridad: ${task.priority} | 
-                Asignado: ${task.assignee_agent_ids || 'Sin asignar'}
-            </div>
-        </div>
-    `).join('');
+    // Enable drag & drop
+    tasks.forEach(task => {
+        const taskElement = document.getElementById(`task-${task.id}`);
+        if (taskElement) {
+            taskElement.draggable = true;
+            taskElement.addEventListener('dragstart', handleDragStart);
+            taskElement.addEventListener('dragend', handleDragEnd);
+            taskElement.addEventListener('click', (e) => {
+                if (!e.target.closest('.task-card').classList.contains('dragging')) {
+                    openTaskModal(task.id);
+                }
+            });
+        }
+    });
+    
+    // Enable drop zones
+    container.addEventListener('dragover', handleDragOver);
+    container.addEventListener('drop', handleDrop);
+    container.addEventListener('dragleave', handleDragLeave);
 }
 
-function renderTasksSummary(summary) {
-    // This data is already handled by renderTaskColumn
-    console.log('Tasks summary:', summary);
+function createTaskCard(task) {
+    const priorityColors = {
+        'low': '#3fb950',
+        'medium': '#d29922',
+        'high': '#f85149',
+        'critical': '#dc2626'
+    };
+    
+    const priorityEmojis = {
+        'low': '🟢',
+        'medium': '🟡',
+        'high': '🟠',
+        'critical': '🔴'
+    };
+    
+    return `
+        <div id="task-${task.id}" 
+             class="task-card priority-${task.priority}" 
+             data-task-id="${task.id}"
+             data-status="${task.status}"
+             style="border-left: 4px solid ${priorityColors[task.priority]};">
+            <div class="task-header">
+                <span class="task-id">#${task.id}</span>
+                <span class="task-priority">${priorityEmojis[task.priority]}</span>
+            </div>
+            <div class="task-title">${escapeHtml(task.title)}</div>
+            ${task.assignee_agent_ids ? `<div class="task-assignee">👤 ${task.assignee_agent_ids}</div>` : ''}
+            ${task.sprint_name ? `<div class="task-sprint">📅 ${task.sprint_name}</div>` : ''}
+        </div>
+    `;
 }
 
 function renderRecentMessages(messages) {
     const container = document.getElementById('messages-list');
-    
     if (messages.length === 0) {
-        container.innerHTML = '<div class="empty-state">No hay mensajes recientes</div>';
+        container.innerHTML = '<p class="empty-state">No hay mensajes recientes</p>';
         return;
     }
     
     container.innerHTML = messages.map(msg => `
-        <div class="message ${msg.from_agent.includes('QA') ? 'from-qa' : ''}">
-            <div class="header">
-                <span class="from">${msg.from_agent}</span>
-                <span class="msg-id" style="color: #8b949e; font-size: 0.85em; margin-left: 8px;">#${msg.id}</span>
-                <span class="timestamp">${formatTime(msg.created_at)}</span>
+        <div class="message-item">
+            <div class="message-header">
+                <strong>${escapeHtml(msg.from_agent)}</strong>
+                <span class="message-time">${formatDate(msg.created_at)}</span>
             </div>
-            <div class="content">${msg.content}</div>
-            ${msg.task_id ? `<div class="meta" style="font-size: 0.75em; color: #8b949e; margin-top: 5px;">Task #${msg.task_id}</div>` : ''}
+            <div class="message-content">${escapeHtml(msg.content.substring(0, 200))}${msg.content.length > 200 ? '...' : ''}</div>
+            ${msg.task_id ? `<div class="message-task">📋 Task #${msg.task_id}</div>` : ''}
         </div>
     `).join('');
 }
 
 function renderNotifications(notifications) {
     const container = document.getElementById('notifications-list');
-    
     if (notifications.length === 0) {
-        container.innerHTML = '<div class="empty-state">No hay notificaciones</div>';
+        container.innerHTML = '<p class="empty-state">No hay notificaciones</p>';
         return;
     }
     
     container.innerHTML = notifications.map(notif => `
-        <div class="notification ${notif.delivered ? 'delivered' : ''}">
-            ${notif.content}
-            <div class="time">${formatTime(notif.created_at)}</div>
+        <div class="notification-item ${notif.delivered ? 'read' : 'unread'}">
+            <div class="notif-content">${escapeHtml(notif.content)}</div>
+            <div class="notif-time">${formatDate(notif.created_at)}</div>
+            ${!notif.delivered ? `<button onclick="markAsRead(${notif.id})">Marcar leído</button>` : ''}
         </div>
     `).join('');
 }
 
 function renderDocuments(documents) {
     const container = document.getElementById('documents-list');
-    
     if (documents.length === 0) {
-        container.innerHTML = '<div class="empty-state">No hay documentos generados</div>';
+        container.innerHTML = '<p class="empty-state">No hay documentos generados</p>';
         return;
     }
     
     container.innerHTML = documents.map(doc => `
-        <div class="document-card" onclick="showDocument(${doc.id})">
-            <div class="title">📄 ${doc.title}</div>
-            <div class="type">${doc.type}</div>
-            <div class="meta" style="font-size: 0.7em; color: #8b949e; margin-top: 5px;">
-                ${formatTime(doc.created_at)}
-            </div>
+        <div class="document-card">
+            <div class="doc-icon">${getDocIcon(doc.type)}</div>
+            <div class="doc-title">${escapeHtml(doc.title)}</div>
+            <div class="doc-type">${doc.type}</div>
+            <div class="doc-time">${formatDate(doc.created_at)}</div>
         </div>
     `).join('');
 }
 
+function getDocIcon(type) {
+    const icons = {
+        'code': '💻',
+        'spec': '📝',
+        'test': '🧪',
+        'report': '📊'
+    };
+    return icons[type] || '📄';
+}
+
+function populateAgentSelect(agents) {
+    // Implementation for multi-send form
+}
+
 // ============================================
-// UTILS
+// DRAG & DROP HANDLERS
 // ============================================
 
-function formatTime(isoString) {
-    if (!isoString) return 'N/A';
-    const date = new Date(isoString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
+function handleDragStart(e) {
+    e.target.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', e.target.dataset.taskId);
+}
+
+function handleDragEnd(e) {
+    e.target.classList.remove('dragging');
     
-    if (diffMins < 1) return 'Ahora';
-    if (diffMins < 60) return `Hace ${diffMins}m`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `Hace ${diffHours}h`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `Hace ${diffDays}d`;
+    // Remove all drop-zone highlights
+    document.querySelectorAll('.task-list').forEach(list => {
+        list.classList.remove('drag-over');
+    });
 }
 
-function showTaskDetail(taskId) {
-    alert(`Task #${taskId} - Funcionalidad en desarrollo`);
-    // TODO: Modal con detalles completos
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    const taskList = e.currentTarget;
+    taskList.classList.add('drag-over');
 }
 
-function showDocument(docId) {
-    alert(`Document #${docId} - Funcionalidad en desarrollo`);
-    // TODO: Modal con contenido markdown renderizado
+function handleDragLeave(e) {
+    const taskList = e.currentTarget;
+    if (!taskList.contains(e.relatedTarget)) {
+        taskList.classList.remove('drag-over');
+    }
 }
+
+async function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const taskList = e.currentTarget;
+    taskList.classList.remove('drag-over');
+    
+    const taskId = e.dataTransfer.getData('text/plain');
+    const newStatus = taskList.dataset.status;
+    
+    if (!taskId || !newStatus) return;
+    
+    console.log(`Moving task ${taskId} to ${newStatus}`);
+    
+    try {
+        const response = await fetch(`${API_BASE}/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        });
+        
+        if (response.ok) {
+            console.log('✅ Task status updated');
+            fetchTasks(); // Refresh board
+        } else {
+            console.error('❌ Failed to update task');
+            alert('Error al actualizar la tarea');
+        }
+    } catch (error) {
+        console.error('Error updating task:', error);
+        alert('Error de conexión al actualizar la tarea');
+    }
+}
+
+// ============================================
+// TASK MODAL
+// ============================================
+
+async function openTaskModal(taskId) {
+    currentTaskId = taskId;
+    
+    try {
+        const response = await fetch(`${API_BASE}/tasks/${taskId}`);
+        const task = await response.json();
+        
+        // Populate modal
+        document.getElementById('modal-task-title').textContent = task.title;
+        document.getElementById('modal-task-id').textContent = `#${task.id}`;
+        document.getElementById('modal-task-sprint').textContent = task.sprint_name || 'Sin sprint';
+        document.getElementById('modal-task-status').value = task.status;
+        document.getElementById('modal-task-priority').value = task.priority;
+        document.getElementById('modal-task-assignee').textContent = task.assignee_agent_ids || 'Sin asignar';
+        document.getElementById('modal-task-created').textContent = formatDate(task.created_at);
+        document.getElementById('modal-task-updated').textContent = formatDate(task.updated_at);
+        document.getElementById('modal-task-description').innerHTML = task.description 
+            ? `<pre>${escapeHtml(task.description)}</pre>` 
+            : '<em>Sin descripción</em>';
+        
+        // Show modal
+        document.getElementById('task-modal').style.display = 'flex';
+        
+    } catch (error) {
+        console.error('Error loading task:', error);
+        alert('Error al cargar el detalle de la tarea');
+    }
+}
+
+function closeTaskModal() {
+    document.getElementById('task-modal').style.display = 'none';
+    currentTaskId = null;
+}
+
+async function updateTaskFromModal() {
+    if (!currentTaskId) return;
+    
+    const status = document.getElementById('modal-task-status').value;
+    const priority = document.getElementById('modal-task-priority').value;
+    
+    try {
+        const response = await fetch(`${API_BASE}/tasks/${currentTaskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, priority })
+        });
+        
+        if (response.ok) {
+            console.log('✅ Task updated from modal');
+            fetchTasks(); // Refresh board
+        } else {
+            console.error('❌ Failed to update task');
+        }
+    } catch (error) {
+        console.error('Error updating task:', error);
+    }
+}
+
+// Close modal when clicking outside
+window.addEventListener('click', (e) => {
+    const modal = document.getElementById('task-modal');
+    if (e.target === modal) {
+        closeTaskModal();
+    }
+});
+
+// ============================================
+// SPRINT FILTER
+// ============================================
+
+function filterBySprint() {
+    const sprintSelect = document.getElementById('sprint-select');
+    currentSprintFilter = sprintSelect.value;
+    fetchTasks();
+}
+
+// ============================================
+// DAEMON LOGS
+// ============================================
+
+async function refreshDaemonLogs(agentName) {
+    const logsContainer = document.getElementById(`${agentName}-logs`);
+    const levelSelect = document.getElementById(`${agentName}-log-level`);
+    const level = levelSelect.value;
+    
+    try {
+        let url = `${API_BASE}/daemons/${agentName}/logs?limit=50`;
+        if (level) {
+            url += `&level=${level}`;
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.logs.length === 0) {
+            logsContainer.innerHTML = '<p class="empty-state">No hay logs disponibles</p>';
+            return;
+        }
+        
+        logsContainer.innerHTML = data.logs.map(log => `
+            <div class="log-entry log-${log.level.toLowerCase()}">
+                <span class="log-time">${formatDate(log.timestamp)}</span>
+                <span class="log-level">[${log.level}]</span>
+                <span class="log-message">${escapeHtml(log.message)}</span>
+            </div>
+        `).join('');
+        
+        // Auto-scroll to bottom
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+        
+    } catch (error) {
+        console.error(`Error fetching ${agentName} logs:`, error);
+        logsContainer.innerHTML = '<p class="error">❌ Error cargando logs</p>';
+    }
+}
+
+// ============================================
+// MESSAGE SENDING
+// ============================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('send-message-form');
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const targetSelect = document.getElementById('target-agents');
+            const messageContent = document.getElementById('message-content').value;
+            const taskId = document.getElementById('task-id-optional').value || null;
+            
+            const selectedAgents = Array.from(targetSelect.selectedOptions).map(opt => opt.value);
+            
+            if (selectedAgents.length === 0) {
+                alert('Selecciona al menos un destinatario');
+                return;
+            }
+            
+            const statusDiv = document.getElementById('send-status');
+            statusDiv.innerHTML = '<p class="loading">Enviando...</p>';
+            
+            try {
+                for (const agent of selectedAgents) {
+                    const response = await fetch(`${API_BASE}/send-agent-message`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            target_agent: agent,
+                            message: messageContent,
+                            task_id: taskId ? parseInt(taskId) : null
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to send to ${agent}`);
+                    }
+                }
+                
+                statusDiv.innerHTML = '<p class="success">✅ Mensaje(s) enviado(s) correctamente</p>';
+                form.reset();
+                
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 3000);
+                
+                fetchDashboard(); // Refresh
+                
+            } catch (error) {
+                console.error('Error sending message:', error);
+                statusDiv.innerHTML = '<p class="error">❌ Error al enviar mensaje</p>';
+            }
+        });
+    }
+});
 
 // ============================================
 // AUTO-REFRESH
 // ============================================
 
-function startAutoRefresh() {
-    // Initial load
-    fetchDashboard();
+function startRefreshTimer() {
+    countdown = 5;
+    updateCountdown();
     
-    // Countdown
-    const countdownEl = document.getElementById('refresh-countdown');
-    setInterval(() => {
+    refreshInterval = setInterval(() => {
         countdown--;
+        updateCountdown();
+        
         if (countdown <= 0) {
-            countdown = 5;
             fetchDashboard();
+            countdown = 5;
         }
-        countdownEl.textContent = countdown;
     }, 1000);
 }
 
-// ============================================
-// SEND MESSAGE TO AGENT
-// ============================================
-
-async function sendMessageToAgent(targetAgents, message, taskId = null) {
-    const statusEl = document.getElementById('send-status');
-    const submitBtn = document.querySelector('.btn-send');
-    
-    // Show loading
-    submitBtn.disabled = true;
-    submitBtn.textContent = '📤 Enviando...';
-    statusEl.className = 'send-status info';
-    statusEl.textContent = 'Preparando mensaje...';
-    
-    // Handle "all" option
-    if (targetAgents.includes('all')) {
-        targetAgents = ['jarvis-pm', 'jarvis-dev', 'jarvis-qa'];
+function updateCountdown() {
+    const countdownEl = document.getElementById('refresh-countdown');
+    if (countdownEl) {
+        countdownEl.textContent = countdown;
     }
-    
+}
+
+async function markAsRead(notifId) {
     try {
-        let successCount = 0;
-        let errors = [];
-        
-        // Send to each agent
-        for (const targetAgent of targetAgents) {
-            try {
-                const response = await fetch(`${API_BASE}/send-agent-message`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        target_agent: targetAgent,
-                        message: message,
-                        task_id: taskId
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    successCount++;
-                } else {
-                    errors.push(`${targetAgent}: ${data.error || 'Error desconocido'}`);
-                }
-            } catch (err) {
-                errors.push(`${targetAgent}: ${err.message}`);
-            }
-        }
-        
-        // Show results
-        if (successCount > 0 && errors.length === 0) {
-            statusEl.className = 'send-status success';
-            const agentList = targetAgents.join(', ');
-            statusEl.innerHTML = `
-                ✅ Mensaje enviado a <strong>${successCount}</strong> agente(s): ${agentList}<br>
-                <small>Los mensajes serán entregados automáticamente en el próximo heartbeat.</small>
-            `;
-            
-            // Clear form
-            document.getElementById('send-message-form').reset();
-            
-            // Refresh messages
-            fetchDashboard();
-            
-            // Hide status after 5s
-            setTimeout(() => {
-                statusEl.style.display = 'none';
-            }, 5000);
-        } else if (successCount > 0 && errors.length > 0) {
-            statusEl.className = 'send-status info';
-            statusEl.innerHTML = `
-                ⚠️ Enviado a ${successCount} agente(s), ${errors.length} fallaron:<br>
-                <small>${errors.join('<br>')}</small>
-            `;
-        } else {
-            throw new Error(errors.join('; '));
-        }
-        
+        await fetch(`${API_BASE}/notifications/${notifId}/mark-delivered`, {
+            method: 'POST'
+        });
+        fetchNotifications();
     } catch (error) {
-        statusEl.className = 'send-status error';
-        statusEl.textContent = `❌ Error: ${error.message}`;
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = '📤 Enviar Mensaje';
+        console.error('Error marking notification:', error);
     }
 }
 
@@ -372,86 +582,20 @@ async function sendMessageToAgent(targetAgents, message, taskId = null) {
 // INITIALIZATION
 // ============================================
 
-document.addEventListener('DOMContentLoaded', () => {
-    startAutoRefresh();
-    
-    // Handle send message form
-    const sendForm = document.getElementById('send-message-form');
-    if (sendForm) {
-        sendForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const selectEl = document.getElementById('target-agents');
-            const targetAgents = Array.from(selectEl.selectedOptions).map(opt => opt.value);
-            const message = document.getElementById('message-content').value;
-            const taskId = document.getElementById('task-id-optional').value || null;
-            
-            if (targetAgents.length === 0) {
-                alert('Selecciona al menos un destinatario');
-                return;
-            }
-            
-            await sendMessageToAgent(targetAgents, message, taskId);
-        });
-    }
-});
+console.log('🎬 Initializing Mission Control...');
+fetchDashboard();
+startRefreshTimer();
 
-// ============================================
-// DAEMON LOGS (Real-time)
-// ============================================
-
-async function refreshDaemonLogs(agentName) {
-    const logsContainer = document.getElementById(`${agentName}-logs`);
-    const levelFilter = document.getElementById(`${agentName}-log-level`).value;
-    
-    try {
-        let url = `/api/daemons/${agentName}/logs?limit=50`;
-        if (levelFilter) {
-            url += `&level=${levelFilter}`;
-        }
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.logs && data.logs.length > 0) {
-            logsContainer.innerHTML = data.logs
-                .reverse() // Show oldest first (chronological)
-                .map(log => {
-                    const timestamp = new Date(log.timestamp).toLocaleTimeString('es-CO', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    
-                    return `
-                        <div class="log-entry ${log.level}">
-                            <span class="log-timestamp">${timestamp}</span>
-                            <span class="log-level ${log.level}">${log.level}</span>
-                            <span class="log-message">${escapeHtml(log.message)}</span>
-                        </div>
-                    `;
-                })
-                .join('');
-            
-            // Auto-scroll to bottom (latest logs)
-            logsContainer.scrollTop = logsContainer.scrollHeight;
-        } else {
-            logsContainer.innerHTML = '<p class="loading">Sin logs recientes</p>';
-        }
-    } catch (error) {
-        console.error(`Error loading ${agentName} logs:`, error);
-        logsContainer.innerHTML = '<p class="loading" style="color: #f85149;">Error cargando logs</p>';
-    }
-}
-
-// Auto-refresh daemon logs every 5 seconds
+// Refresh daemon logs every 10 seconds
 setInterval(() => {
     refreshDaemonLogs('dev');
     refreshDaemonLogs('qa');
-}, 5000);
+}, 10000);
 
-// Initial load
+// Initial daemon logs load
 setTimeout(() => {
     refreshDaemonLogs('dev');
     refreshDaemonLogs('qa');
-}, 500);
+}, 1000);
+
+console.log('✅ Mission Control initialized');

@@ -51,12 +51,37 @@ class Agent(db.Model):
         }
 
 
+class Sprint(db.Model):
+    """Sprints para organización de tareas"""
+    __tablename__ = 'sprints'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    goal = db.Column(db.Text)
+    start_date = db.Column(db.DateTime)
+    end_date = db.Column(db.DateTime)
+    status = db.Column(db.String(50), default='active')  # active, completed, archived
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'goal': self.goal,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
 class Task(db.Model):
     """Tareas/Tickets del sprint"""
     __tablename__ = 'tasks'
     
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
+    sprint_id = db.Column(db.Integer, db.ForeignKey('sprints.id'), nullable=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     status = db.Column(db.String(50), default='todo')  # todo, in_progress, review, done, blocked
@@ -67,11 +92,13 @@ class Task(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     project = db.relationship('Project', backref='tasks')
+    sprint = db.relationship('Sprint', backref='tasks')
     
     def to_dict(self):
         return {
             'id': self.id,
             'project_id': self.project_id,
+            'sprint_id': self.sprint_id,
             'title': self.title,
             'description': self.description,
             'status': self.status,
@@ -79,7 +106,8 @@ class Task(db.Model):
             'assignee_agent_ids': self.assignee_agent_ids,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'sprint_name': self.sprint.name if self.sprint else None
         }
 
 
