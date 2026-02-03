@@ -121,42 +121,57 @@ class AgentDaemon:
             self.logger.error(f"❌ DB error: {e}")
             return []
     
-    def _trigger_heartbeat(self, message: Dict) -> bool:
-        """Execute heartbeat script for this agent"""
-        script_path = self.agent_config["heartbeat_script"]
-        
-        if not os.path.exists(script_path):
-            self.logger.error(f"❌ Heartbeat script not found: {script_path}")
-            return False
-        
+    def _queue_task(self, message: Dict) -> bool:
+        """Queue task in database for spawner service"""
         try:
-            self.logger.info(f"🔔 Triggering heartbeat: {script_path}")
-            self.logger.info(f"   Message ID: {message['id']} from {message['from_agent']}")
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
-            result = subprocess.run(
-                ["/bin/bash", script_path],
-                capture_output=True,
-                text=True,
-                timeout=self.config["heartbeat_timeout_seconds"]
-            )
+            # Check if already queued
+            cursor.execute("""
+                SELECT id FROM task_queue 
+                WHERE message_id = ? AND target_agent = ?
+            """, (message['id'], f"jarvis-{self.agent_name}"))
             
-            if result.returncode == 0:
-                self.logger.info(f"✅ Heartbeat completed successfully")
+            if cursor.fetchone():
+                self.logger.info(f"⏭️  Message {message['id']} already queued")
+                conn.close()
                 return True
-            else:
-                self.logger.warning(f"⚠️ Heartbeat exited with code {result.returncode}")
-                self.logger.warning(f"   stderr: {result.stderr[:200]}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            self.logger.error(f"⏱️ Heartbeat timeout ({self.config['heartbeat_timeout_seconds']}s)")
-            return False
-        except Exception as e:
-            self.logger.error(f"❌ Heartbeat error: {e}")
+            
+            # Determine priority
+            priority = 'urgent' if 'URGENT' in message['content'].upper() else 'normal'
+            if '[HIGH]' in message['content'].upper() or 'PRIORITY: HIGH' in message['content'].upper():
+                priority = 'high'
+            
+            # Insert to queue
+            cursor.execute("""
+                INSERT INTO task_queue 
+                (target_agent, message_id, from_agent, content, priority, status)
+                VALUES (?, ?, ?, ?, ?, 'pending')
+            """, (
+                f"jarvis-{self.agent_name}",
+                message['id'],
+                message['from_agent'],
+                message['content'],
+                priority
+            ))
+            
+            task_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            
+            self.logger.info(f"✅ Task #{task_id} queued (priority: {priority})")
+            self.logger.info(f"   Agent: jarvis-{self.agent_name}")
+            self.logger.info(f"   Message ID: {message['id']}")
+            
+            return True
+            
+        except sqlite3.Error as e:
+            self.logger.error(f"❌ DB error queuing task: {e}")
             return False
     
     def poll_and_process(self):
-        """Single polling cycle: check for new messages and process them"""
+        """Single polling cycle: check for new messages and queue tasks"""
         messages = self._get_new_messages()
         
         if not messages:
@@ -168,17 +183,17 @@ class AgentDaemon:
         for message in messages:
             self.logger.info(f"📨 Processing message {message['id']}: {message['content'][:60]}...")
             
-            # Trigger heartbeat
-            success = self._trigger_heartbeat(message)
+            # Queue task for spawner
+            success = self._queue_task(message)
             
-            # Update state (even if trigger failed, don't re-process same message)
+            # Update state (even if queue failed, don't re-process same message)
             self.state["last_message_id"] = message["id"]
             self._save_state()
             
             if success:
-                self.logger.info(f"✅ Message {message['id']} processed successfully")
+                self.logger.info(f"✅ Message {message['id']} queued successfully")
             else:
-                self.logger.warning(f"⚠️ Message {message['id']} processed with errors")
+                self.logger.warning(f"⚠️ Message {message['id']} queue failed")
     
     def run(self):
         """Main daemon loop"""

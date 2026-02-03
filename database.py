@@ -171,3 +171,44 @@ class DaemonLog(db.Model):
             'message': self.message,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None
         }
+
+
+class TaskQueue(db.Model):
+    """Cola de tareas para spawn automático de agentes"""
+    __tablename__ = 'task_queue'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    target_agent = db.Column(db.String(50), nullable=False, index=True)  # 'jarvis-dev', 'jarvis-qa', etc.
+    message_id = db.Column(db.Integer, db.ForeignKey('messages.id'), nullable=False, index=True)
+    from_agent = db.Column(db.String(50), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    priority = db.Column(db.String(20), default='normal')  # 'urgent', 'high', 'normal', 'low'
+    status = db.Column(db.String(20), default='pending', index=True)  # 'pending', 'processing', 'completed', 'failed'
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    clawdbot_session_key = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+    retry_count = db.Column(db.Integer, default=0)
+    
+    # Relationship
+    message = db.relationship('Message', backref='queued_tasks')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'target_agent': self.target_agent,
+            'message_id': self.message_id,
+            'from_agent': self.from_agent,
+            'content': self.content[:200] + '...' if len(self.content) > 200 else self.content,
+            'priority': self.priority,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'clawdbot_session_key': self.clawdbot_session_key,
+            'error_message': self.error_message,
+            'retry_count': self.retry_count
+        }

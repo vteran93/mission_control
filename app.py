@@ -1,7 +1,7 @@
 # app.py - Flask Backend para Mission Control
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
-from database import db, Agent, Task, Message, Document, Notification, DaemonLog
+from database import db, Agent, Task, Message, Document, Notification, DaemonLog, TaskQueue
 from datetime import datetime
 import os
 import subprocess
@@ -447,6 +447,39 @@ def get_all_daemon_logs():
 # ============================================
 # INITIALIZATION
 # ============================================
+
+@app.route('/api/queue', methods=['GET'])
+def get_task_queue():
+    """Get task queue status and recent tasks"""
+    
+    # Get queue summary
+    summary = {
+        'pending': TaskQueue.query.filter_by(status='pending').count(),
+        'processing': TaskQueue.query.filter_by(status='processing').count(),
+        'completed': TaskQueue.query.filter_by(status='completed').count(),
+        'failed': TaskQueue.query.filter_by(status='failed').count(),
+    }
+    
+    # Get recent tasks
+    limit = min(int(request.args.get('limit', 20)), 100)
+    recent_tasks = TaskQueue.query.order_by(TaskQueue.created_at.desc()).limit(limit).all()
+    
+    # Get pending tasks (detailed)
+    pending_tasks = TaskQueue.query.filter_by(status='pending').order_by(TaskQueue.created_at.asc()).all()
+    
+    return jsonify({
+        'summary': summary,
+        'recent_tasks': [t.to_dict() for t in recent_tasks],
+        'pending_tasks': [t.to_dict() for t in pending_tasks]
+    })
+
+
+@app.route('/api/queue/<int:task_id>', methods=['GET'])
+def get_task_detail(task_id):
+    """Get detailed info for a specific queued task"""
+    task = TaskQueue.query.get_or_404(task_id)
+    return jsonify(task.to_dict())
+
 
 def init_db():
     """Crear tablas y datos iniciales"""
