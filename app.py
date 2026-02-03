@@ -154,9 +154,21 @@ def messages():
     """Listar o crear mensajes"""
     if request.method == 'GET':
         task_id = request.args.get('task_id', type=int)
+        sprint = request.args.get('sprint')  # Filter by sprint (e.g., "sprint_2")
+        
         query = Message.query
+        
         if task_id:
             query = query.filter_by(task_id=task_id)
+        
+        # Filter by sprint: exclude Sprint 1 tasks (1-10)
+        if sprint == 'sprint_2':
+            # Get task_ids from Sprint 2 (id >= 11) or no task
+            sprint2_task_ids = [t.id for t in Task.query.filter(Task.id >= 11).all()]
+            query = query.filter(
+                (Message.task_id.in_(sprint2_task_ids)) | (Message.task_id == None)
+            )
+        
         messages = query.order_by(Message.created_at.desc()).limit(50).all()
         return jsonify([m.to_dict() for m in messages])
     
@@ -368,7 +380,13 @@ def dashboard():
         'done': Task.query.filter_by(status='done').count(),
         'blocked': Task.query.filter_by(status='blocked').count(),
     }
-    recent_messages = Message.query.order_by(Message.created_at.desc()).limit(10).all()
+    
+    # Filter messages: only Sprint 2 (task_id >= 11 or null)
+    sprint2_task_ids = [t.id for t in Task.query.filter(Task.id >= 11).all()]
+    recent_messages = Message.query.filter(
+        (Message.task_id.in_(sprint2_task_ids)) | (Message.task_id == None)
+    ).order_by(Message.created_at.desc()).limit(10).all()
+    
     unread_notifications = Notification.query.filter_by(delivered=False).count()
     
     return jsonify({
