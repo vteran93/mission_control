@@ -92,6 +92,7 @@ class Message(db.Model):
     from_agent = db.Column(db.String(100), nullable=False)
     content = db.Column(db.Text, nullable=False)
     attachments = db.Column(db.Text)  # JSON string con paths
+    visible = db.Column(db.Boolean, default=True)  # Sprint context visibility
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     task = db.relationship('Task', backref='messages')
@@ -103,6 +104,7 @@ class Message(db.Model):
             'from_agent': self.from_agent,
             'content': self.content,
             'attachments': self.attachments,
+            'visible': self.visible,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 

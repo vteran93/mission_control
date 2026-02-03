@@ -154,20 +154,16 @@ def messages():
     """Listar o crear mensajes"""
     if request.method == 'GET':
         task_id = request.args.get('task_id', type=int)
-        sprint = request.args.get('sprint')  # Filter by sprint (e.g., "sprint_2")
+        show_hidden = request.args.get('show_hidden', 'false').lower() == 'true'
         
         query = Message.query
         
         if task_id:
             query = query.filter_by(task_id=task_id)
         
-        # Filter by sprint: exclude Sprint 1 tasks (1-10)
-        if sprint == 'sprint_2':
-            # Get task_ids from Sprint 2 (id >= 11) or no task
-            sprint2_task_ids = [t.id for t in Task.query.filter(Task.id >= 11).all()]
-            query = query.filter(
-                (Message.task_id.in_(sprint2_task_ids)) | (Message.task_id == None)
-            )
+        # Filter by visibility (default: only visible messages)
+        if not show_hidden:
+            query = query.filter_by(visible=True)
         
         messages = query.order_by(Message.created_at.desc()).limit(50).all()
         return jsonify([m.to_dict() for m in messages])
@@ -381,11 +377,9 @@ def dashboard():
         'blocked': Task.query.filter_by(status='blocked').count(),
     }
     
-    # Filter messages: only Sprint 2 (task_id >= 11 or null)
-    sprint2_task_ids = [t.id for t in Task.query.filter(Task.id >= 11).all()]
-    recent_messages = Message.query.filter(
-        (Message.task_id.in_(sprint2_task_ids)) | (Message.task_id == None)
-    ).order_by(Message.created_at.desc()).limit(10).all()
+    # Filter messages: only visible=True (Sprint 2 context)
+    recent_messages = Message.query.filter_by(visible=True)\
+        .order_by(Message.created_at.desc()).limit(10).all()
     
     unread_notifications = Notification.query.filter_by(delivered=False).count()
     
@@ -497,6 +491,66 @@ def get_task_detail(task_id):
     """Get detailed info for a specific queued task"""
     task = TaskQueue.query.get_or_404(task_id)
     return jsonify(task.to_dict())
+
+
+@app.route('/api/messages/visibility', methods=['POST'])
+def toggle_messages_visibility():
+    """
+    Bulk update message visibility for sprint context management
+    
+    POST /api/messages/visibility
+    {
+        "action": "hide_sprint_1" | "show_all" | "hide_before_date",
+        "date": "2026-02-03T17:00:00" (optional, for hide_before_date)
+    }
+    """
+    data = request.json
+    action = data.get('action')
+    
+    if action == 'hide_sprint_1':
+        # Hide all messages from Sprint 1 tasks (1-10)
+        result = db.session.execute(
+            db.update(Message).where(Message.task_id.between(1, 10)).values(visible=False)
+        )
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'action': 'hide_sprint_1',
+            'rows_updated': result.rowcount
+        })
+    
+    elif action == 'show_all':
+        # Show all messages
+        result = db.session.execute(
+            db.update(Message).values(visible=True)
+        )
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'action': 'show_all',
+            'rows_updated': result.rowcount
+        })
+    
+    elif action == 'hide_before_date':
+        # Hide all messages before a specific date
+        date_str = data.get('date')
+        if not date_str:
+            return jsonify({'error': 'date parameter required'}), 400
+        
+        cutoff_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        result = db.session.execute(
+            db.update(Message).where(Message.created_at < cutoff_date).values(visible=False)
+        )
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'action': 'hide_before_date',
+            'cutoff': date_str,
+            'rows_updated': result.rowcount
+        })
+    
+    else:
+        return jsonify({'error': f'Unknown action: {action}'}), 400
 
 
 def init_db():
