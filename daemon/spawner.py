@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
 """
-Agent Spawner Service - Event-driven agent spawning from task queue
-Reemplaza el flujo manual de JSON → Jarvis heartbeat → spawn
-"""
-import sys
-import sqlite3
-import subprocess
-import json
-import time
-from pathlib import Path
-from datetime import datetime
+Mission Control Agent Spawner Service - v2 (HTTP API)
 
-# Paths
-BASE_DIR = Path(__file__).parent.parent
-DB_PATH = BASE_DIR / 'instance' / 'mission_control.db'
-POLL_INTERVAL = 5  # segundos
+Polls task_queue DB and spawns agents via Clawdbot Gateway HTTP API (/tools/invoke)
+"""
+import json
+import os
+import sqlite3
+import sys
+import time
+import requests
+from datetime import datetime
+from pathlib import Path
+
+# Configuration
+DB_PATH = Path(__file__).parent.parent / 'instance' / 'mission_control.db'
+POLL_INTERVAL = 5  # seconds
 MAX_RETRIES = 3
+GATEWAY_URL = 'http://127.0.0.1:18789'
+GATEWAY_TOKEN = os.getenv('CLAWDBOT_GATEWAY_TOKEN', '44ae63a5fce38d36e6a5976ca66d9e5454dde6e36d68cdac')
 
 def log(message):
     """Simple logging with timestamp"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] {message}", flush=True)
 
-def get_pending_tasks():
-    """Get pending tasks ordered by priority"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+def get_pending_tasks(conn):
+    """Get all pending tasks ordered by priority"""
     cursor = conn.cursor()
-    
     cursor.execute("""
         SELECT * FROM task_queue
         WHERE status = 'pending' AND retry_count < ?
@@ -39,84 +39,19 @@ def get_pending_tasks():
                 WHEN 'low' THEN 4
             END,
             created_at ASC
-        LIMIT 5
     """, (MAX_RETRIES,))
     
-    tasks = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return tasks
+    return [dict(row) for row in cursor.fetchall()]
 
-def mark_task_processing(task_id):
-    """Mark task as processing"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE task_queue 
-        SET status = 'processing', started_at = ?
-        WHERE id = ?
-    """, (datetime.now(), task_id))
-    conn.commit()
-    conn.close()
-
-def mark_task_completed(task_id, session_key):
-    """Mark task as completed"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE task_queue 
-        SET status = 'completed', 
-            completed_at = ?,
-            clawdbot_session_key = ?
-        WHERE id = ?
-    """, (datetime.now(), session_key, task_id))
-    conn.commit()
-    conn.close()
-
-def mark_task_failed(task_id, error):
-    """Mark task as failed (increment retry)"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE task_queue 
-        SET status = 'failed', 
-            error_message = ?,
-            retry_count = retry_count + 1
-        WHERE id = ?
-    """, (error[:500], task_id))
-    conn.commit()
-    
-    # Check retry count
-    cursor.execute("SELECT retry_count FROM task_queue WHERE id = ?", (task_id,))
-    row = cursor.fetchone()
-    retry_count = row[0] if row else 0
-    
-    conn.close()
-    
-    if retry_count < MAX_RETRIES:
-        # Reset to pending for retry
-        reset_to_pending(task_id)
-        log(f"   ⚠️  Will retry (attempt {retry_count + 1}/{MAX_RETRIES})")
-    else:
-        log(f"   ❌ Max retries reached, giving up")
-
-def reset_to_pending(task_id):
-    """Reset failed task to pending for retry"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE task_queue 
-        SET status = 'pending'
-        WHERE id = ?
-    """, (task_id,))
-    conn.commit()
-    conn.close()
-
-def spawn_agent(task):
-    """Spawn agent via clawdbot CLI subprocess"""
+def spawn_agent_via_api(task):
+    """Spawn agent using Clawdbot Gateway HTTP API"""
     agent_label = task['target_agent']
     
-    # Build task content
-    task_content = f"""[MISSION CONTROL WORK]
+    payload = {
+        'tool': 'sessions_spawn',
+        'args': {
+            'label': agent_label,
+            'task': f"""[MISSION CONTROL WORK]
 
 Message ID: {task['message_id']}
 From: {task['from_agent']}
@@ -135,102 +70,137 @@ From: {task['from_agent']}
 3. Commit to git (if code changes)
 4. Report back to Mission Control API (POST http://localhost:5001/api/messages)
 
-**IMPORTANT:** Post completion status to Mission Control.
-"""
+**IMPORTANT:** Post completion status to Mission Control.""",
+            'cleanup': 'keep',
+            'runTimeoutSeconds': 7200
+        }
+    }
     
-    # Execute clawdbot spawn via subprocess
     try:
-        log(f"   🚀 Executing: clawdbot spawn --label {agent_label}")
-        
-        result = subprocess.run(
-            [
-                'clawdbot', 'spawn',
-                '--label', agent_label,
-                '--cleanup', 'keep',
-                '--timeout', '7200',
-                '--task', task_content
-            ],
-            capture_output=True,
-            text=True,
+        response = requests.post(
+            f'{GATEWAY_URL}/tools/invoke',
+            headers={
+                'Authorization': f'Bearer {GATEWAY_TOKEN}',
+                'Content-Type': 'application/json'
+            },
+            json=payload,
             timeout=30
         )
         
-        if result.returncode == 0:
-            # Parse output for session key
-            output = result.stdout.strip()
-            
-            # Try to extract session key from output
-            session_key = None
-            for line in output.split('\n'):
-                if 'sessionKey' in line or 'session' in line.lower():
-                    # Attempt basic extraction
-                    if ':' in line:
-                        session_key = line.split(':', 1)[1].strip()
-                        break
-            
-            if not session_key:
-                session_key = f"spawned-{task['id']}-{int(time.time())}"
-            
-            log(f"   ✅ Spawned successfully")
-            log(f"   📝 Session: {session_key[:50]}...")
-            
-            return session_key
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('ok'):
+                # childSessionKey is in result.details
+                details = result.get('result', {}).get('details', {})
+                session_key = details.get('childSessionKey', 'unknown')
+                return {'success': True, 'session_key': session_key}
+            else:
+                return {'success': False, 'error': result.get('error', {}).get('message', 'Unknown error')}
         else:
-            error = result.stderr or result.stdout or "Unknown error"
-            log(f"   ❌ Spawn failed: {error[:200]}")
-            return None
+            return {'success': False, 'error': f'HTTP {response.status_code}: {response.text}'}
             
-    except subprocess.TimeoutExpired:
-        log(f"   ⏱️  Spawn timeout (30s)")
-        return None
-    except FileNotFoundError:
-        log(f"   ❌ clawdbot CLI not found in PATH")
-        return None
+    except requests.exceptions.RequestException as e:
+        return {'success': False, 'error': f'Request failed: {str(e)}'}
     except Exception as e:
-        log(f"   ⚠️  Exception: {str(e)[:200]}")
-        return None
+        return {'success': False, 'error': f'Unexpected error: {str(e)}'}
+
+def process_task(task, conn):
+    """Process a single task"""
+    task_id = task['id']
+    agent_label = task['target_agent']
+    
+    log(f"🔨 Processing task #{task_id}: {agent_label}")
+    log(f"   📨 Message #{task['message_id']} from {task['from_agent']}")
+    log(f"   ⚡ Priority: {task['priority']}")
+    
+    # Mark as processing
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE task_queue
+        SET status = 'processing', started_at = datetime('now')
+        WHERE id = ?
+    """, (task_id,))
+    conn.commit()
+    
+    # Spawn via HTTP API
+    log(f"   🚀 Spawning via Gateway HTTP API...")
+    result = spawn_agent_via_api(task)
+    
+    if result['success']:
+        # Mark as completed
+        cursor.execute("""
+            UPDATE task_queue
+            SET status = 'completed',
+                completed_at = datetime('now'),
+                clawdbot_session_key = ?
+            WHERE id = ?
+        """, (result['session_key'], task_id))
+        conn.commit()
+        
+        log(f"   ✅ Task #{task_id} completed successfully")
+        log(f"   🔑 Session: {result['session_key']}")
+        return True
+    else:
+        # Mark as failed or retry
+        retry_count = task['retry_count'] + 1
+        if retry_count < MAX_RETRIES:
+            cursor.execute("""
+                UPDATE task_queue
+                SET status = 'pending',
+                    retry_count = ?,
+                    error_message = ?
+                WHERE id = ?
+            """, (retry_count, result['error'][:500], task_id))
+            conn.commit()
+            log(f"   ⚠️  Spawn failed: {result['error']}")
+            log(f"   ⏳ Will retry (attempt {retry_count + 1}/{MAX_RETRIES})")
+        else:
+            cursor.execute("""
+                UPDATE task_queue
+                SET status = 'failed',
+                    retry_count = ?,
+                    error_message = ?
+                WHERE id = ?
+            """, (retry_count, result['error'][:500], task_id))
+            conn.commit()
+            log(f"   ❌ Task #{task_id} failed permanently after {MAX_RETRIES} attempts")
+            log(f"   💥 Error: {result['error']}")
+        
+        return False
 
 def main():
     """Main spawner loop"""
-    log("🚀 Mission Control Agent Spawner Service")
+    if not GATEWAY_TOKEN:
+        log("❌ ERROR: CLAWDBOT_GATEWAY_TOKEN not set")
+        sys.exit(1)
+    
+    log("🚀 Mission Control Agent Spawner Service (HTTP API)")
     log(f"📊 Database: {DB_PATH}")
+    log(f"🌐 Gateway: {GATEWAY_URL}")
     log(f"⏰ Poll interval: {POLL_INTERVAL}s")
     log(f"🔁 Max retries: {MAX_RETRIES}")
-    log("🛑 Press Ctrl+C to stop\n")
+    log(f"🛑 Press Ctrl+C to stop")
+    log("")
     
-    while True:
-        try:
-            tasks = get_pending_tasks()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    
+    try:
+        while True:
+            tasks = get_pending_tasks(conn)
             
             if tasks:
                 log(f"📋 Found {len(tasks)} pending task(s)")
-                
                 for task in tasks:
-                    log(f"\n🔨 Processing task #{task['id']}: {task['target_agent']}")
-                    log(f"   📨 Message #{task['message_id']} from {task['from_agent']}")
-                    log(f"   ⚡ Priority: {task['priority']}")
-                    
-                    mark_task_processing(task['id'])
-                    
-                    session_key = spawn_agent(task)
-                    
-                    if session_key:
-                        mark_task_completed(task['id'], session_key)
-                        log(f"   ✅ Task #{task['id']} completed")
-                    else:
-                        mark_task_failed(task['id'], "Spawn subprocess failed")
-                        log(f"   ❌ Task #{task['id']} failed")
-                
-                log("")  # Blank line
+                    process_task(task, conn)
+                    log("")
             
             time.sleep(POLL_INTERVAL)
             
-        except KeyboardInterrupt:
-            log("\n\n👋 Shutting down spawner service...")
-            break
-        except Exception as e:
-            log(f"⚠️  Error in spawner loop: {e}")
-            time.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        log("\n👋 Shutting down...")
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     main()
