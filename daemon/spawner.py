@@ -18,7 +18,8 @@ DB_PATH = Path(__file__).parent.parent / 'instance' / 'mission_control.db'
 POLL_INTERVAL = 5  # seconds
 MAX_RETRIES = 3
 GATEWAY_URL = 'http://127.0.0.1:18789'
-GATEWAY_TOKEN = os.getenv('CLAWDBOT_GATEWAY_TOKEN', '44ae63a5fce38d36e6a5976ca66d9e5454dde6e36d68cdac')
+# Token from environment variable (auto-extracted from config in .zshrc)
+GATEWAY_TOKEN = os.getenv('CLAWDBOT_GATEWAY_TOKEN', '')
 
 def log(message):
     """Simple logging with timestamp"""
