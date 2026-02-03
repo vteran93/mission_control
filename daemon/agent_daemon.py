@@ -127,11 +127,13 @@ class AgentDaemon:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            agent_label = f"jarvis-{self.agent_key}"
+            
             # Check if already queued
             cursor.execute("""
                 SELECT id FROM task_queue 
                 WHERE message_id = ? AND target_agent = ?
-            """, (message['id'], f"jarvis-{self.agent_name}"))
+            """, (message['id'], agent_label))
             
             if cursor.fetchone():
                 self.logger.info(f"⏭️  Message {message['id']} already queued")
@@ -149,7 +151,7 @@ class AgentDaemon:
                 (target_agent, message_id, from_agent, content, priority, status)
                 VALUES (?, ?, ?, ?, ?, 'pending')
             """, (
-                f"jarvis-{self.agent_name}",
+                agent_label,
                 message['id'],
                 message['from_agent'],
                 message['content'],
@@ -161,7 +163,7 @@ class AgentDaemon:
             conn.close()
             
             self.logger.info(f"✅ Task #{task_id} queued (priority: {priority})")
-            self.logger.info(f"   Agent: jarvis-{self.agent_name}")
+            self.logger.info(f"   Agent: {agent_label}")
             self.logger.info(f"   Message ID: {message['id']}")
             
             return True

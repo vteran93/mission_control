@@ -20,7 +20,7 @@ MAX_RETRIES = 3
 def log(message):
     """Simple logging with timestamp"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] {message}")
+    print(f"[{timestamp}] {message}", flush=True)
 
 def get_pending_tasks():
     """Get pending tasks ordered by priority"""
