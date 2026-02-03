@@ -1,7 +1,7 @@
 # app.py - Flask Backend para Mission Control
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
-from database import db, Agent, Task, Message, Document, Notification
+from database import db, Agent, Task, Message, Document, Notification, DaemonLog
 from datetime import datetime
 import os
 import subprocess
@@ -376,6 +376,71 @@ def dashboard():
         'tasks_summary': tasks_by_status,
         'recent_messages': [m.to_dict() for m in recent_messages],
         'unread_notifications': unread_notifications
+    })
+
+
+@app.route('/api/daemons/<agent_name>/logs', methods=['GET'])
+def get_daemon_logs(agent_name):
+    """
+    Get recent daemon logs for an agent
+    
+    Query params:
+    - limit: number of logs (default 50, max 200)
+    - level: filter by log level (DEBUG, INFO, WARNING, ERROR)
+    - since: timestamp to get logs since (ISO format)
+    """
+    from database import DaemonLog
+    
+    # Validate agent name
+    valid_agents = ['dev', 'qa', 'pm']
+    if agent_name not in valid_agents:
+        return jsonify({'error': f'Invalid agent. Must be one of: {valid_agents}'}), 400
+    
+    # Parse query params
+    limit = min(int(request.args.get('limit', 50)), 200)
+    level = request.args.get('level', '').upper()
+    since = request.args.get('since')
+    
+    # Build query
+    query = DaemonLog.query.filter_by(agent_name=agent_name)
+    
+    if level and level in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
+        query = query.filter_by(level=level)
+    
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+            query = query.filter(DaemonLog.timestamp >= since_dt)
+        except:
+            pass
+    
+    logs = query.order_by(DaemonLog.timestamp.desc()).limit(limit).all()
+    
+    return jsonify({
+        'agent_name': agent_name,
+        'count': len(logs),
+        'logs': [log.to_dict() for log in logs]
+    })
+
+
+@app.route('/api/daemons/logs/all', methods=['GET'])
+def get_all_daemon_logs():
+    """Get recent logs from all daemons (for overview)"""
+    from database import DaemonLog
+    
+    limit = min(int(request.args.get('limit', 100)), 500)
+    
+    logs = DaemonLog.query.order_by(DaemonLog.timestamp.desc()).limit(limit).all()
+    
+    # Group by agent for easy rendering
+    logs_by_agent = {'dev': [], 'qa': [], 'pm': []}
+    for log in logs:
+        if log.agent_name in logs_by_agent:
+            logs_by_agent[log.agent_name].append(log.to_dict())
+    
+    return jsonify({
+        'count': len(logs),
+        'logs_by_agent': logs_by_agent
     })
 
 

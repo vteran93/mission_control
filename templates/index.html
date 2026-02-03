@@ -94,6 +94,46 @@
             </div>
         </section>
 
+        <!-- Daemon Logs (Real-time) -->
+        <section class="panel">
+            <h2>🤖 Daemon Logs (Tiempo Real)</h2>
+            <div class="daemon-logs-container">
+                <!-- Jarvis-Dev Logs -->
+                <div class="daemon-log-section">
+                    <h3>💻 Jarvis-Dev Daemon</h3>
+                    <div class="log-controls">
+                        <button class="btn-small" onclick="refreshDaemonLogs('dev')">🔄 Refrescar</button>
+                        <select id="dev-log-level" onchange="refreshDaemonLogs('dev')">
+                            <option value="">Todos los niveles</option>
+                            <option value="INFO" selected>INFO+</option>
+                            <option value="WARNING">WARNING+</option>
+                            <option value="ERROR">ERROR</option>
+                        </select>
+                    </div>
+                    <div id="dev-logs" class="daemon-logs-box">
+                        <p class="loading">Cargando logs...</p>
+                    </div>
+                </div>
+
+                <!-- Jarvis-QA Logs -->
+                <div class="daemon-log-section">
+                    <h3>🧪 Jarvis-QA Daemon</h3>
+                    <div class="log-controls">
+                        <button class="btn-small" onclick="refreshDaemonLogs('qa')">🔄 Refrescar</button>
+                        <select id="qa-log-level" onchange="refreshDaemonLogs('qa')">
+                            <option value="">Todos los niveles</option>
+                            <option value="INFO" selected>INFO+</option>
+                            <option value="WARNING">WARNING+</option>
+                            <option value="ERROR">ERROR</option>
+                        </select>
+                    </div>
+                    <div id="qa-logs" class="daemon-logs-box">
+                        <p class="loading">Cargando logs...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Documents -->
         <section class="panel">
             <h2>📄 Documentos Generados</h2>

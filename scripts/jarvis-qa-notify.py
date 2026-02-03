@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Jarvis-QA Direct Responder - EJECUTA QA review completo
+Jarvis-QA Notification Relay - Notifies main Jarvis agent to spawn sub-agent
 """
 import sys
 import os
 import requests
-import subprocess
 from datetime import datetime
 from pathlib import Path
+import json
 
 # Rutas relativas a mission_control
 BASE_DIR = Path(__file__).parent.parent
 API_BASE = 'http://localhost:5001/api'
 AGENT_NAME = 'Jarvis-QA'
 PROCESSED_FILE = BASE_DIR / 'daemon/state/qa-processed-messages.txt'
+NOTIFICATION_FILE = BASE_DIR / 'daemon/state/qa-pending-work.json'
 
 def get_processed_messages():
     """Get IDs of already processed messages"""
@@ -51,50 +52,56 @@ def check_messages_for_me():
         
         return my_messages
     except Exception as e:
-        print(f"⚠️ Error: {e}")
+        print(f"⚠️ Error checking messages: {e}")
         return []
 
-def respond_via_clawdbot(message_content):
-    """Execute QA review using clawdbot agent command"""
-    prompt = f"""Read IDENTITY.md. Dev posted QA READY:
-
-"{message_content}"
-
-YOUR TASK - EXECUTE QA REVIEW:
-
-1. cd ~/repositories/blog-agentic
-2. Run pytest tests/ to verify tests pass
-3. Check pytest --cov=app for coverage
-4. Review app/*.py files for security issues
-5. Test uvicorn app.main:app manually
-6. Post verdict to Mission Control API
-
-Execute the review NOW and post your verdict (APPROVED/REJECTED/CONDITIONAL) with details."""
+def notify_work_needed(message):
+    """Write work notification file that main Jarvis will pick up"""
+    notification = {
+        "agent": "Jarvis-QA",
+        "message_id": message['id'],
+        "from": message['from_agent'],
+        "content": message['content'],
+        "created_at": message['created_at'],
+        "timestamp": datetime.now().isoformat()
+    }
     
-    try:
-        result = subprocess.run(
-            ['clawdbot', 'agent', '--agent', 'jarvis-qa', '--message', prompt, '--local'],
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 min timeout for QA review
-        )
-        return result.returncode == 0
-    except Exception as e:
-        print(f"⚠️ Error: {e}")
-        return False
+    NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Append to notifications
+    notifications = []
+    if NOTIFICATION_FILE.exists():
+        with open(NOTIFICATION_FILE, 'r') as f:
+            try:
+                notifications = json.load(f)
+            except:
+                notifications = []
+    
+    notifications.append(notification)
+    
+    with open(NOTIFICATION_FILE, 'w') as f:
+        json.dump(notifications, f, indent=2)
+    
+    print(f"✅ Notification written for message {message['id']}")
+    return True
 
 def main():
     processed = get_processed_messages()
     new_messages = check_messages_for_me()
     
+    if not new_messages:
+        print("📭 No new messages for Jarvis-QA")
+        return
+    
     for msg in new_messages:
         if str(msg['id']) not in processed:
             print(f"📨 Processing message {msg['id']} from {msg['from_agent']}")
-            if respond_via_clawdbot(msg['content']):
+            
+            if notify_work_needed(msg):
                 mark_processed(msg['id'])
-                print(f"✅ Responded to {msg['id']}")
+                print(f"✅ Notified main Jarvis about message {msg['id']}")
             else:
-                print(f"⚠️ Failed to respond to {msg['id']}")
+                print(f"⚠️ Failed to notify about message {msg['id']}")
 
 if __name__ == '__main__':
     main()

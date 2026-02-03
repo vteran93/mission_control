@@ -10,7 +10,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 echo "[$TIMESTAMP] Jarvis-QA direct heartbeat..." >> "$LOG_FILE"
 
-python3 "$SCRIPT_DIR/jarvis-qa-direct.py" >> "$LOG_FILE" 2>&1
+python3 "$SCRIPT_DIR/jarvis-qa-notify.py" >> "$LOG_FILE" 2>&1
 
 EXIT_CODE=$?
 

@@ -151,3 +151,23 @@ class Notification(db.Model):
             'delivered': self.delivered,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class DaemonLog(db.Model):
+    """Logs de daemons en tiempo real"""
+    __tablename__ = 'daemon_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    agent_name = db.Column(db.String(50), nullable=False, index=True)  # 'dev', 'qa', 'pm'
+    level = db.Column(db.String(20), nullable=False)  # DEBUG, INFO, WARNING, ERROR
+    message = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'agent_name': self.agent_name,
+            'level': self.level,
+            'message': self.message,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None
+        }

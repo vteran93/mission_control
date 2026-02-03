@@ -54,6 +54,7 @@ class AgentDaemon:
         log_file = Path(self.agent_config["log_file"])
         log_file.parent.mkdir(parents=True, exist_ok=True)
         
+        # Setup standard file + console logging
         logging.basicConfig(
             level=getattr(logging, self.config["log_level"]),
             format='%(asctime)s [%(levelname)s] %(message)s',
@@ -63,6 +64,16 @@ class AgentDaemon:
             ]
         )
         self.logger = logging.getLogger(f"AgentDaemon.{self.agent_key}")
+        
+        # Add database logging for real-time dashboard
+        try:
+            from db_logger import DatabaseLogHandler
+            db_handler = DatabaseLogHandler(self.db_path, self.agent_key)
+            db_handler.setLevel(logging.INFO)  # Only INFO+ to DB
+            db_handler.setFormatter(logging.Formatter('%(message)s'))
+            self.logger.addHandler(db_handler)
+        except Exception as e:
+            self.logger.warning(f"Could not setup DB logging: {e}")
     
     def _load_state(self) -> Dict:
         """Load persistent state (last processed message ID)"""

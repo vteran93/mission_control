@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jarvis-Dev Direct Responder - Responde directamente via clawdbot agent
+Jarvis-Dev Direct Responder - Ejecuta trabajo real via clawdbot agent
 """
 import sys
 import os
@@ -55,22 +55,55 @@ def check_messages_for_me():
         return []
 
 def respond_via_clawdbot(message_content):
-    """Respond using clawdbot agent command"""
-    prompt = f"""Lee tu IDENTITY.md. Mensaje recibido:
+    """Execute work using clawdbot agent command"""
+    prompt = f"""Read IDENTITY.md and AGENTS.md. Message received from Mission Control:
 
 "{message_content}"
 
-Responde profesionalmente Y ejecuta:
+YOUR TASK (EXECUTE ALL STEPS):
 
+1. **Understand the request** - What work is assigned?
+2. **Go to the repo** - cd ~/repositories/blog-agentic
+3. **DO THE WORK** - Write code, implement features, create tests
+4. **Commit frequently** - git add/commit after each feature
+5. **Report back** - Post status to Mission Control API
+
+CRITICAL: You must EXECUTE the work, not just acknowledge it.
+
+Example flow for ticket assignment:
+```python
+import subprocess
 import requests
-requests.post('http://localhost:5001/api/messages', json={{'from_agent': 'Jarvis-Dev', 'content': 'TU_RESPUESTA'}})"""
+
+# 1. Go to repo and implement
+subprocess.run(['bash', '-c', 'cd ~/repositories/blog-agentic && mkdir -p app && cat > app/main.py << EOF
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {{"message": "Blog API"}}
+EOF'])
+
+# 2. Commit
+subprocess.run(['bash', '-c', 'cd ~/repositories/blog-agentic && git add . && git commit -m "feat: FastAPI setup"'])
+
+# 3. Report
+requests.post('http://localhost:5001/api/messages', json={{
+    'from_agent': 'Jarvis-Dev',
+    'content': '[PROGRESS] BLOG-001: FastAPI setup complete. Commit: abc123. Next: Models.'
+}})
+```
+
+NOW EXECUTE THE WORK DESCRIBED IN THE MESSAGE ABOVE.
+"""
     
     try:
         result = subprocess.run(
             ['clawdbot', 'agent', '--agent', 'jarvis-dev', '--message', prompt, '--local'],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=300  # 5 min timeout for actual work
         )
         return result.returncode == 0
     except Exception as e:

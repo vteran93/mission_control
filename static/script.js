@@ -5,6 +5,21 @@ let refreshInterval;
 let countdown = 5;
 
 // ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// ============================================
 // DATA FETCHING
 // ============================================
 
@@ -174,6 +189,7 @@ function renderRecentMessages(messages) {
         <div class="message ${msg.from_agent.includes('QA') ? 'from-qa' : ''}">
             <div class="header">
                 <span class="from">${msg.from_agent}</span>
+                <span class="msg-id" style="color: #8b949e; font-size: 0.85em; margin-left: 8px;">#${msg.id}</span>
                 <span class="timestamp">${formatTime(msg.created_at)}</span>
             </div>
             <div class="content">${msg.content}</div>
@@ -379,3 +395,63 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// ============================================
+// DAEMON LOGS (Real-time)
+// ============================================
+
+async function refreshDaemonLogs(agentName) {
+    const logsContainer = document.getElementById(`${agentName}-logs`);
+    const levelFilter = document.getElementById(`${agentName}-log-level`).value;
+    
+    try {
+        let url = `/api/daemons/${agentName}/logs?limit=50`;
+        if (levelFilter) {
+            url += `&level=${levelFilter}`;
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.logs && data.logs.length > 0) {
+            logsContainer.innerHTML = data.logs
+                .reverse() // Show oldest first (chronological)
+                .map(log => {
+                    const timestamp = new Date(log.timestamp).toLocaleTimeString('es-CO', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    
+                    return `
+                        <div class="log-entry ${log.level}">
+                            <span class="log-timestamp">${timestamp}</span>
+                            <span class="log-level ${log.level}">${log.level}</span>
+                            <span class="log-message">${escapeHtml(log.message)}</span>
+                        </div>
+                    `;
+                })
+                .join('');
+            
+            // Auto-scroll to bottom (latest logs)
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        } else {
+            logsContainer.innerHTML = '<p class="loading">Sin logs recientes</p>';
+        }
+    } catch (error) {
+        console.error(`Error loading ${agentName} logs:`, error);
+        logsContainer.innerHTML = '<p class="loading" style="color: #f85149;">Error cargando logs</p>';
+    }
+}
+
+// Auto-refresh daemon logs every 5 seconds
+setInterval(() => {
+    refreshDaemonLogs('dev');
+    refreshDaemonLogs('qa');
+}, 5000);
+
+// Initial load
+setTimeout(() => {
+    refreshDaemonLogs('dev');
+    refreshDaemonLogs('qa');
+}, 500);
