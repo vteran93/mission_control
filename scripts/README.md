@@ -12,6 +12,7 @@ scripts/
 ├── jarvis-pm-heartbeat.sh     # Wrapper bash para PM
 ├── jarvis-qa-direct.py        # Responder directo de Jarvis-QA
 ├── jarvis-qa-heartbeat.sh     # Wrapper bash para QA
+├── e2e_validate_mission_control.py  # Test E2E local (PM/Dev/QA + orchestrator)
 └── README.md                  # Este archivo
 ```
 
@@ -64,3 +65,16 @@ Para agregar nuevo agente:
 **IMPORTANTE:** Estos scripts deben estar en Mission Control, NO en `~/.local/bin/`.
 
 Mission Control es el orquestador central de comunicación entre agentes.
+
+
+## Test E2E rápido
+
+```bash
+python3 scripts/e2e_validate_mission_control.py --allow-missing-langgraph
+```
+
+Si quieres validación estricta de LangGraph (falla si falta dependencia):
+
+```bash
+python3 scripts/e2e_validate_mission_control.py
+```
