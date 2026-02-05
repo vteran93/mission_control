@@ -20,6 +20,23 @@ Optional: override the checkpoint path for LangGraph persistence:
 export OPENCLAW_SQLITE_PATH="$HOME/.openclaw/state/orchestrator.sqlite"
 ```
 
+## Instalación Standalone (mínima intervención)
+
+```bash
+python3 scripts/install_openclaw_orchestrator_skill.py
+```
+
+Opciones útiles:
+
+```bash
+python3 scripts/install_openclaw_orchestrator_skill.py \
+  --install-dir ~/.openclaw/skills \
+  --state-dir ~/.openclaw/state \
+  --sqlite-path ~/.openclaw/state/orchestrator.sqlite
+```
+
+El script instala dependencias, copia la skill, genera `skill_manifest.json` y ejecuta un smoke test de importación.
+
 ## Running the Orchestrator
 
 ```python
