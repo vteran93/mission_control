@@ -5,7 +5,7 @@
 ### Step 1: Install Staggered Heartbeat Crons
 ```bash
 # Generate the commands
-python3 ~/clawd/scripts/stagger_heartbeats.py
+python3 ~/repositories/mission_control/scripts/stagger_heartbeats.py
 
 # Execute each of the 4 commands shown (copy/paste)
 # Example:
@@ -36,10 +36,10 @@ clawdbot cron list | grep standup
 ### Step 3: Test Scripts Manually
 ```bash
 # Test state updater
-python3 ~/clawd/scripts/update_working_state.py
+python3 ~/repositories/mission_control/scripts/update_working_state.py
 
 # Test daily standup
-python3 ~/clawd/scripts/generate_daily_standup.py
+python3 ~/repositories/mission_control/scripts/generate_daily_standup.py
 
 # Check WORKING.md
 cat ~/clawd/memory/WORKING.md
