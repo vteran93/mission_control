@@ -10,6 +10,7 @@ from flask_cors import CORS
 from config import load_settings
 from crew_runtime import AgenticRuntime
 from database import Agent, DaemonLog, Document, Message, Notification, Sprint, Task, TaskQueue, db
+from spec_intake import SpecIntakeService
 
 
 def ensure_runtime_directories(app: Flask) -> None:
@@ -49,6 +50,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     runtime = AgenticRuntime(settings)
     app.extensions["mission_control_runtime"] = runtime
     app.extensions["queue_dispatcher"] = runtime.dispatcher
+    app.extensions["spec_intake_service"] = SpecIntakeService()
     register_routes(app)
     runtime.start_background_dispatcher(app)
     return app
@@ -87,6 +89,35 @@ def register_routes(app: Flask) -> None:
         db.session.add(agent)
         db.session.commit()
         return jsonify(agent.to_dict()), 201
+
+    @app.route("/api/spec-intake/preview", methods=["POST"])
+    def spec_intake_preview():
+        data = request.get_json(force=True)
+        requirements_path = data.get("requirements_path")
+        roadmap_path = data.get("roadmap_path")
+
+        if not requirements_path or not roadmap_path:
+            return jsonify({"error": "requirements_path and roadmap_path are required"}), 400
+
+        def resolve_input_path(raw_path: str) -> Path:
+            candidate = Path(raw_path).expanduser()
+            if not candidate.is_absolute():
+                candidate = Path(app.config["MISSION_CONTROL_BASE_DIR"]) / candidate
+            return candidate.resolve()
+
+        resolved_requirements = resolve_input_path(requirements_path)
+        resolved_roadmap = resolve_input_path(roadmap_path)
+
+        if not resolved_requirements.is_file():
+            return jsonify({"error": f"requirements_path not found: {resolved_requirements}"}), 404
+        if not resolved_roadmap.is_file():
+            return jsonify({"error": f"roadmap_path not found: {resolved_roadmap}"}), 404
+
+        blueprint = app.extensions["spec_intake_service"].build_blueprint(
+            requirements_path=resolved_requirements,
+            roadmap_path=resolved_roadmap,
+        )
+        return jsonify(blueprint.to_dict())
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):
