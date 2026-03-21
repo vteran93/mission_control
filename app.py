@@ -10,6 +10,7 @@ from flask_cors import CORS
 from config import load_settings
 from crew_runtime import AgenticRuntime
 from database import Agent, DaemonLog, Document, Message, Notification, Sprint, Task, TaskQueue, db
+from delivery_tracking import DeliveryTrackingService
 from spec_intake import BlueprintPersistenceService, SpecIntakeService
 
 
@@ -52,6 +53,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.extensions["queue_dispatcher"] = runtime.dispatcher
     app.extensions["spec_intake_service"] = SpecIntakeService()
     app.extensions["blueprint_persistence_service"] = BlueprintPersistenceService()
+    app.extensions["delivery_tracking_service"] = DeliveryTrackingService()
     register_routes(app)
     runtime.start_background_dispatcher(app)
     return app
@@ -204,6 +206,200 @@ def register_routes(app: Flask) -> None:
             status=data.get("status", "open"),
         )
         return jsonify(item.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/sprint-cycles", methods=["GET", "POST"])
+    def sprint_cycles(blueprint_id: int):
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_record = persistence_service.get_blueprint(blueprint_id)
+        if blueprint_record is None:
+            return jsonify({"error": "Blueprint not found"}), 404
+
+        if request.method == "GET":
+            items = sorted(
+                blueprint_record.sprint_cycles,
+                key=lambda item: item.created_at.isoformat() if item.created_at else "",
+            )
+            return jsonify([item.to_dict() for item in items])
+
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            sprint_cycle = tracking_service.create_sprint_cycle(
+                blueprint_id=blueprint_id,
+                name=data["name"],
+                goal=data.get("goal"),
+                capacity=data.get("capacity"),
+                status=data.get("status", "planned"),
+                start_date=datetime.fromisoformat(data["start_date"]) if data.get("start_date") else None,
+                end_date=datetime.fromisoformat(data["end_date"]) if data.get("end_date") else None,
+                metadata=data.get("metadata"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(sprint_cycle.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/stage-events", methods=["POST"])
+    def create_stage_event(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            event = tracking_service.create_stage_event(
+                blueprint_id=blueprint_id,
+                stage_name=data["stage_name"],
+                status=data["status"],
+                source=data.get("source", "system"),
+                summary=data["summary"],
+                metadata=data.get("metadata"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(event.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/agent-runs", methods=["POST"])
+    def create_agent_run(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            run = tracking_service.create_agent_run(
+                blueprint_id=blueprint_id,
+                agent_name=data["agent_name"],
+                agent_role=data.get("agent_role"),
+                provider=data.get("provider"),
+                model=data.get("model"),
+                status=data.get("status", "queued"),
+                input_summary=data.get("input_summary"),
+                output_summary=data.get("output_summary"),
+                error_message=data.get("error_message"),
+                runtime_name=data.get("runtime_name"),
+                completed=data.get("completed", False),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(run.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/task-executions", methods=["POST"])
+    def create_task_execution(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            execution = tracking_service.create_task_execution(
+                blueprint_id=blueprint_id,
+                delivery_task_id=data["delivery_task_id"],
+                agent_run_id=data.get("agent_run_id"),
+                status=data.get("status", "queued"),
+                attempt_number=data.get("attempt_number", 1),
+                summary=data.get("summary"),
+                error_message=data.get("error_message"),
+                completed=data.get("completed", False),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(execution.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/artifacts", methods=["POST"])
+    def create_artifact(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            artifact = tracking_service.create_artifact(
+                blueprint_id=blueprint_id,
+                name=data["name"],
+                artifact_type=data["artifact_type"],
+                uri=data["uri"],
+                agent_run_id=data.get("agent_run_id"),
+                task_execution_id=data.get("task_execution_id"),
+                document_id=data.get("document_id"),
+                metadata=data.get("metadata"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(artifact.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/handoffs", methods=["POST"])
+    def create_handoff(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            handoff = tracking_service.create_handoff(
+                blueprint_id=blueprint_id,
+                from_agent=data["from_agent"],
+                to_agent=data["to_agent"],
+                status=data.get("status", "requested"),
+                reason=data["reason"],
+                task_execution_id=data.get("task_execution_id"),
+                context=data.get("context"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(handoff.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/llm-invocations", methods=["POST"])
+    def create_llm_invocation(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        data = request.get_json(force=True)
+
+        try:
+            invocation = tracking_service.create_llm_invocation(
+                blueprint_id=blueprint_id,
+                provider=data["provider"],
+                model=data["model"],
+                purpose=data["purpose"],
+                status=data.get("status", "completed"),
+                agent_run_id=data.get("agent_run_id"),
+                prompt_tokens=data.get("prompt_tokens", 0),
+                completion_tokens=data.get("completion_tokens", 0),
+                latency_ms=data.get("latency_ms"),
+                cost_usd=data.get("cost_usd", 0.0),
+                metadata=data.get("metadata"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(invocation.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/timeline", methods=["GET"])
+    def blueprint_timeline(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        try:
+            timeline = tracking_service.build_timeline(blueprint_id)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        return jsonify({"blueprint_id": blueprint_id, "timeline": timeline})
+
+    @app.route("/api/blueprints/<int:blueprint_id>/report", methods=["GET"])
+    def blueprint_report(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        try:
+            report = tracking_service.build_report(blueprint_id)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        return jsonify(report)
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):

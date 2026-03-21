@@ -8,7 +8,7 @@
 
 - [x] Fase 0 - Foundation Cleanup
 - [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
-- [ ] Fase 2 - Postgres Delivery Model
+- [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
 - [ ] Fase 3 - CrewAI Runtime Hybrid
 - [ ] Fase 4 - Autonomous Scrum Planner
 - [ ] Fase 5 - Autonomous Delivery Loop
@@ -259,14 +259,25 @@ Criterios de aceptacion:
 
 Objetivo: llevar a Postgres el modelo completo de ejecucion agentic, SCRUM y aprendizaje.
 
-Estado actual del slice en ejecucion:
+Estado actual de la fase:
 
 - [x] Persistencia de `spec_documents`, `spec_sections` y `project_blueprints`
 - [x] Persistencia de requirements, epics y tickets derivados del intake
+- [x] Persistencia de `sprint_cycles`, `sprint_stage_events`, `stage_feedback` y `retrospective_items`
+- [x] Persistencia de `agent_runs`, `task_executions`, `artifacts`, `handoffs` y `llm_invocations`
 - [x] Endpoints API para importar, listar y consultar blueprints persistidos
-- [x] Endpoints API para `stage_feedback` y `retrospective_items`
-- [ ] Persistencia de `agent_runs`, `task_executions`, `artifacts`, `handoffs` y `llm_invocations`
-- [ ] Timeline consolidado por blueprint y reportes agregados
+- [x] Endpoints API para sprints, feedback, retrospective, timeline y reportes agregados
+- [x] Migraciones `0002_phase2_blueprint_delivery_model` y `0003_phase2_execution_tracking`
+- [x] Tests automatizados de Fases 0-2 (`25 passed` al cierre de esta actualizacion)
+
+Validacion contra tickets de la fase:
+
+- `AG-201` Cumplido. Quedaron persistidos blueprints, backlog derivado, `sprint_cycles`, `agent_runs`, `task_executions` y `artifacts`.
+- `AG-202` Cumplido. `stage_feedback` y `retrospective_items` ya estan modelados, persistidos y expuestos por API.
+- `AG-203` Cumplido. Existen estados canonicos validados por servicio para sprint cycle, sprint stage, agent run, task execution, handoff e invocation.
+- `AG-204` Cumplido. La API ya expone blueprint, backlog, sprint cycles, timeline unificado y resultados agregados de corrida.
+- `AG-205` Cumplido. Se persisten `llm_invocations`, `handoffs` y eventos de etapa que soportan decisiones de gating.
+- `AG-206` Cumplido. El sistema ya entrega reportes agregados de costo, throughput, retry rate y defect leakage estimado.
 
 Tickets:
 
@@ -279,9 +290,15 @@ Tickets:
 
 Criterios de aceptacion:
 
-- Todo el ciclo de planeacion y ejecucion queda persistido en Postgres.
-- Se puede reconstruir que agente hizo que, con que modelo, sobre que ticket y con que resultado.
-- El sistema soporta reportes de sprint review y retrospective sin fuentes externas.
+- [x] Todo el ciclo de planeacion y ejecucion queda persistido en Postgres.
+- [x] Se puede reconstruir que agente hizo que, con que modelo, sobre que ticket y con que resultado.
+- [x] El sistema soporta reportes de sprint review y retrospective sin fuentes externas.
+
+Conclusion de validacion:
+
+- La Fase 2 queda terminada en esta rama.
+- Mission Control ya puede persistir blueprint, backlog, sprints, ejecucion agentic, feedback SCRUM, retrospective y evidencia LLM en Postgres.
+- El siguiente salto real es Fase 3: conectar este modelo persistente con crews CrewAI, routing Ollama/Bedrock y tools operativas de workspace.
 
 ### Fase 3 - CrewAI Runtime Hybrid
 

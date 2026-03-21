@@ -475,3 +475,241 @@ class RetrospectiveItemRecord(db.Model):
             'status': self.status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class SprintCycleRecord(db.Model):
+    """Sprint persistido para un blueprint"""
+    __tablename__ = 'sprint_cycles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    goal = db.Column(db.Text, default='')
+    capacity = db.Column(db.Integer)
+    status = db.Column(db.String(50), nullable=False, default='planned', index=True)
+    start_date = db.Column(db.DateTime)
+    end_date = db.Column(db.DateTime)
+    metadata_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='sprint_cycles')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'name': self.name,
+            'goal': self.goal,
+            'capacity': self.capacity,
+            'status': self.status,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'metadata': self.metadata_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SprintStageEventRecord(db.Model):
+    """Evento canonico de etapas SCRUM sobre un blueprint"""
+    __tablename__ = 'sprint_stage_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    stage_name = db.Column(db.String(50), nullable=False, index=True)
+    status = db.Column(db.String(50), nullable=False, index=True)
+    source = db.Column(db.String(100), nullable=False, default='system')
+    summary = db.Column(db.Text, nullable=False)
+    metadata_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='sprint_stage_events')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'stage_name': self.stage_name,
+            'status': self.status,
+            'source': self.source,
+            'summary': self.summary,
+            'metadata': self.metadata_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AgentRunRecord(db.Model):
+    """Corrida de un agente dentro del flujo agentic"""
+    __tablename__ = 'agent_runs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    agent_name = db.Column(db.String(100), nullable=False, index=True)
+    agent_role = db.Column(db.String(50), nullable=True, index=True)
+    provider = db.Column(db.String(50), nullable=True, index=True)
+    model = db.Column(db.String(200), nullable=True)
+    status = db.Column(db.String(50), nullable=False, default='queued', index=True)
+    input_summary = db.Column(db.Text)
+    output_summary = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+    runtime_name = db.Column(db.String(100))
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='agent_runs')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'agent_name': self.agent_name,
+            'agent_role': self.agent_role,
+            'provider': self.provider,
+            'model': self.model,
+            'status': self.status,
+            'input_summary': self.input_summary,
+            'output_summary': self.output_summary,
+            'error_message': self.error_message,
+            'runtime_name': self.runtime_name,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+class TaskExecutionRecord(db.Model):
+    """Intento de ejecucion sobre un ticket derivado del roadmap"""
+    __tablename__ = 'task_executions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    delivery_task_id = db.Column(db.Integer, db.ForeignKey('delivery_tasks.id'), nullable=False, index=True)
+    agent_run_id = db.Column(db.Integer, db.ForeignKey('agent_runs.id'), nullable=True, index=True)
+    status = db.Column(db.String(50), nullable=False, default='queued', index=True)
+    attempt_number = db.Column(db.Integer, nullable=False, default=1)
+    summary = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='task_executions')
+    delivery_task = db.relationship('DeliveryTaskRecord', backref='task_executions')
+    agent_run = db.relationship('AgentRunRecord', backref='task_executions')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'delivery_task_id': self.delivery_task_id,
+            'agent_run_id': self.agent_run_id,
+            'status': self.status,
+            'attempt_number': self.attempt_number,
+            'summary': self.summary,
+            'error_message': self.error_message,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'ticket_id': self.delivery_task.ticket_id if self.delivery_task else None,
+        }
+
+
+class ArtifactRecord(db.Model):
+    """Artefacto generado durante una corrida o ejecucion"""
+    __tablename__ = 'artifacts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    agent_run_id = db.Column(db.Integer, db.ForeignKey('agent_runs.id'), nullable=True, index=True)
+    task_execution_id = db.Column(db.Integer, db.ForeignKey('task_executions.id'), nullable=True, index=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('documents.id'), nullable=True, index=True)
+    name = db.Column(db.String(255), nullable=False)
+    artifact_type = db.Column(db.String(50), nullable=False, index=True)
+    uri = db.Column(db.String(1000), nullable=False)
+    metadata_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='artifacts')
+    agent_run = db.relationship('AgentRunRecord', backref='artifacts')
+    task_execution = db.relationship('TaskExecutionRecord', backref='artifacts')
+    document = db.relationship('Document', backref='artifacts')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'agent_run_id': self.agent_run_id,
+            'task_execution_id': self.task_execution_id,
+            'document_id': self.document_id,
+            'name': self.name,
+            'artifact_type': self.artifact_type,
+            'uri': self.uri,
+            'metadata': self.metadata_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class HandoffRecord(db.Model):
+    """Traspaso entre agentes con contexto de decision"""
+    __tablename__ = 'handoffs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    task_execution_id = db.Column(db.Integer, db.ForeignKey('task_executions.id'), nullable=True, index=True)
+    from_agent = db.Column(db.String(100), nullable=False, index=True)
+    to_agent = db.Column(db.String(100), nullable=False, index=True)
+    status = db.Column(db.String(50), nullable=False, default='requested', index=True)
+    reason = db.Column(db.Text, nullable=False)
+    context_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='handoffs')
+    task_execution = db.relationship('TaskExecutionRecord', backref='handoffs')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'task_execution_id': self.task_execution_id,
+            'from_agent': self.from_agent,
+            'to_agent': self.to_agent,
+            'status': self.status,
+            'reason': self.reason,
+            'context': self.context_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class LLMInvocationRecord(db.Model):
+    """Invocacion de modelo LLM con trazabilidad de costo y latencia"""
+    __tablename__ = 'llm_invocations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    agent_run_id = db.Column(db.Integer, db.ForeignKey('agent_runs.id'), nullable=True, index=True)
+    provider = db.Column(db.String(50), nullable=False, index=True)
+    model = db.Column(db.String(200), nullable=False, index=True)
+    purpose = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(50), nullable=False, default='completed', index=True)
+    prompt_tokens = db.Column(db.Integer, nullable=False, default=0)
+    completion_tokens = db.Column(db.Integer, nullable=False, default=0)
+    latency_ms = db.Column(db.Integer)
+    cost_usd = db.Column(db.Float, nullable=False, default=0.0)
+    metadata_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='llm_invocations')
+    agent_run = db.relationship('AgentRunRecord', backref='llm_invocations')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'agent_run_id': self.agent_run_id,
+            'provider': self.provider,
+            'model': self.model,
+            'purpose': self.purpose,
+            'status': self.status,
+            'prompt_tokens': self.prompt_tokens,
+            'completion_tokens': self.completion_tokens,
+            'latency_ms': self.latency_ms,
+            'cost_usd': self.cost_usd,
+            'metadata': self.metadata_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
