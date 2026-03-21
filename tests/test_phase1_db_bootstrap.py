@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock
 
+import re
+
 
 def load_module(module_name: str):
     sys.modules.pop(module_name, None)
@@ -57,3 +59,17 @@ def test_initialize_database_runs_migrations_and_seeds(tmp_path, monkeypatch):
 
     run_migrations.assert_called_once()
     seed_initial_agents.assert_called_once()
+
+
+def test_alembic_revision_ids_fit_default_version_table_width():
+    versions_dir = Path(__file__).resolve().parent.parent / "alembic_scripts" / "versions"
+    revision_pattern = re.compile(r'^revision = "([^"]+)"$', re.MULTILINE)
+
+    revision_ids = []
+    for path in sorted(versions_dir.glob("*.py")):
+        revision_match = revision_pattern.search(path.read_text(encoding="utf-8"))
+        assert revision_match is not None, f"Missing revision in {path.name}"
+        revision_ids.append(revision_match.group(1))
+
+    assert revision_ids
+    assert all(len(revision_id) <= 32 for revision_id in revision_ids)

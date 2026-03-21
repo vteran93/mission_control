@@ -1,7 +1,7 @@
 """Phase 2 execution tracking
 
 Revision ID: 0003_phase2_execution_tracking
-Revises: 0002_phase2_blueprint_delivery_model
+Revises: 0002_phase2_delivery_model
 Create Date: 2026-03-21 22:15:00
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision = "0003_phase2_execution_tracking"
-down_revision = "0002_phase2_blueprint_delivery_model"
+down_revision = "0002_phase2_delivery_model"
 branch_labels = None
 depends_on = None
 

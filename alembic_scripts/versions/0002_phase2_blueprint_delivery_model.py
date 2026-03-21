@@ -1,6 +1,6 @@
 """Phase 2 blueprint delivery model
 
-Revision ID: 0002_phase2_blueprint_delivery_model
+Revision ID: 0002_phase2_delivery_model
 Revises: 0001_initial_schema
 Create Date: 2026-03-21 18:30:00
 """
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0002_phase2_blueprint_delivery_model"
+revision = "0002_phase2_delivery_model"
 down_revision = "0001_initial_schema"
 branch_labels = None
 depends_on = None
