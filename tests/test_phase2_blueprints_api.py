@@ -222,7 +222,9 @@ def test_execution_tracking_endpoints_build_timeline_and_report(configured_app_w
         },
     )
     assert agent_run.status_code == 201
-    agent_run_id = agent_run.get_json()["id"]
+    agent_run_payload = agent_run.get_json()
+    assert agent_run_payload["completed_at"] is not None
+    agent_run_id = agent_run_payload["id"]
 
     task_execution = client.post(
         f"/api/blueprints/{blueprint_id}/task-executions",
@@ -236,7 +238,9 @@ def test_execution_tracking_endpoints_build_timeline_and_report(configured_app_w
         },
     )
     assert task_execution.status_code == 201
-    task_execution_id = task_execution.get_json()["id"]
+    task_execution_payload = task_execution.get_json()
+    assert task_execution_payload["completed_at"] is not None
+    task_execution_id = task_execution_payload["id"]
 
     artifact = client.post(
         f"/api/blueprints/{blueprint_id}/artifacts",

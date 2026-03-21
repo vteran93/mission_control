@@ -57,6 +57,32 @@ def test_health_endpoint_reports_ok(configured_app):
     assert response.get_json()["agentic_runtime_enabled"] is True
 
 
+def test_init_db_starts_dispatcher_after_database_bootstrap(configured_app, monkeypatch):
+    app, app_module, _ = configured_app
+
+    import db_bootstrap
+
+    events = []
+
+    def fake_initialize_database(application):
+        assert application is app
+        events.append("bootstrap")
+
+    runtime = app.extensions["mission_control_runtime"]
+
+    def fake_start_background_dispatcher(application):
+        assert application is app
+        events.append("dispatcher")
+        return True
+
+    monkeypatch.setattr(db_bootstrap, "initialize_database", fake_initialize_database)
+    monkeypatch.setattr(runtime, "start_background_dispatcher", fake_start_background_dispatcher)
+
+    app_module.init_db(app)
+
+    assert events == ["bootstrap", "dispatcher"]
+
+
 def test_send_agent_message_writes_to_database_queue(configured_app):
     app, app_module, _ = configured_app
     client = app.test_client()
@@ -78,6 +104,60 @@ def test_send_agent_message_writes_to_database_queue(configured_app):
         assert queue_entry.target_agent == "jarvis-dev"
         assert queue_entry.content == "Implementa el ticket"
         assert queue_entry.status == "pending"
+
+
+def test_dispatcher_claim_pending_entries_marks_rows_processing_in_priority_order(configured_app):
+    app, app_module, _ = configured_app
+    dispatcher = app.extensions["queue_dispatcher"]
+
+    with app.app_context():
+        first_message = app_module.Message(from_agent="Jarvis-PM", content="low")
+        second_message = app_module.Message(from_agent="Jarvis-PM", content="high")
+        third_message = app_module.Message(from_agent="Jarvis-PM", content="normal")
+        app_module.db.session.add_all([first_message, second_message, third_message])
+        app_module.db.session.flush()
+
+        app_module.db.session.add_all(
+            [
+                app_module.TaskQueue(
+                    target_agent="jarvis-dev",
+                    message_id=first_message.id,
+                    from_agent="Jarvis-PM",
+                    content="low",
+                    priority="low",
+                    status="pending",
+                ),
+                app_module.TaskQueue(
+                    target_agent="jarvis-dev",
+                    message_id=second_message.id,
+                    from_agent="Jarvis-PM",
+                    content="high",
+                    priority="high",
+                    status="pending",
+                ),
+                app_module.TaskQueue(
+                    target_agent="jarvis-dev",
+                    message_id=third_message.id,
+                    from_agent="Jarvis-PM",
+                    content="normal",
+                    priority="normal",
+                    status="pending",
+                ),
+            ]
+        )
+        app_module.db.session.commit()
+
+        claimed = dispatcher.claim_pending_entries(limit=2)
+
+        assert [entry.priority for entry in claimed] == ["high", "normal"]
+        assert all(entry.status == "processing" for entry in claimed)
+        assert all(entry.started_at is not None for entry in claimed)
+        remaining = (
+            app_module.TaskQueue.query.filter_by(status="pending")
+            .order_by(app_module.TaskQueue.id.asc())
+            .all()
+        )
+        assert [entry.priority for entry in remaining] == ["low"]
 
 
 def test_send_agent_message_rejects_unknown_agent(configured_app):

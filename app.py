@@ -35,6 +35,7 @@ def init_db(app: Flask | None = None) -> None:
     from db_bootstrap import initialize_database
 
     initialize_database(application)
+    application.extensions["mission_control_runtime"].start_background_dispatcher(application)
 
 
 def create_app(config_overrides: dict | None = None) -> Flask:
@@ -55,7 +56,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.extensions["blueprint_persistence_service"] = BlueprintPersistenceService()
     app.extensions["delivery_tracking_service"] = DeliveryTrackingService()
     register_routes(app)
-    runtime.start_background_dispatcher(app)
     return app
 
 

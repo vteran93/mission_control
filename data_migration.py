@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from sqlalchemy import MetaData, create_engine, text
+from sqlalchemy import MetaData, create_engine, inspect, text
 
 from database import db
 
@@ -43,8 +43,12 @@ def copy_table_data(source_engine, target_engine, table_name: str) -> int:
 
 
 def copy_all_tables(source_engine, target_engine, table_names: Iterable[str]) -> dict[str, int]:
+    source_table_names = set(inspect(source_engine).get_table_names())
     copied = {}
     for table_name in table_names:
+        if table_name not in source_table_names:
+            copied[table_name] = 0
+            continue
         copied[table_name] = copy_table_data(source_engine, target_engine, table_name)
     return copied
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import datetime
 
 from database import (
     AgentRunRecord,
@@ -143,9 +144,10 @@ class DeliveryTrackingService:
             error_message=error_message,
             runtime_name=runtime_name,
         )
-        if completed:
-            run.completed_at = run.started_at
         db.session.add(run)
+        db.session.flush()
+        if completed:
+            run.completed_at = run.started_at or datetime.utcnow()
         db.session.commit()
         return run
 
@@ -176,9 +178,10 @@ class DeliveryTrackingService:
             summary=summary,
             error_message=error_message,
         )
-        if completed:
-            execution.completed_at = execution.started_at
         db.session.add(execution)
+        db.session.flush()
+        if completed:
+            execution.completed_at = execution.started_at or datetime.utcnow()
         db.session.commit()
         return execution
 

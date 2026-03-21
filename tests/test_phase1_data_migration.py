@@ -98,6 +98,56 @@ def test_copy_table_data_nulls_orphaned_nullable_foreign_keys(tmp_path):
     assert result == [(10, 1), (11, None)]
 
 
+def test_copy_all_tables_skips_tables_missing_from_legacy_source(tmp_path):
+    from data_migration import copy_all_tables
+
+    source_path = tmp_path / "source_partial.db"
+    target_path = tmp_path / "target_full.db"
+    source_engine = create_engine(f"sqlite:///{source_path}")
+    target_engine = create_engine(f"sqlite:///{target_path}")
+
+    source_metadata = MetaData()
+    target_metadata = MetaData()
+
+    source_agents = Table(
+        "agents",
+        source_metadata,
+        Column("id", Integer, primary_key=True),
+        Column("name", String(100), nullable=False),
+    )
+    target_agents = Table(
+        "agents",
+        target_metadata,
+        Column("id", Integer, primary_key=True),
+        Column("name", String(100), nullable=False),
+    )
+    Table(
+        "spec_documents",
+        target_metadata,
+        Column("id", Integer, primary_key=True),
+        Column("project_name", String(100), nullable=False),
+    )
+
+    source_metadata.create_all(source_engine)
+    target_metadata.create_all(target_engine)
+
+    with source_engine.begin() as connection:
+        connection.execute(source_agents.insert(), [{"id": 1, "name": "Jarvis-PM"}])
+
+    copied = copy_all_tables(
+        source_engine=source_engine,
+        target_engine=target_engine,
+        table_names=["agents", "spec_documents"],
+    )
+
+    assert copied == {"agents": 1, "spec_documents": 0}
+
+    with target_engine.connect() as connection:
+        result = connection.execute(select(target_agents.c.id, target_agents.c.name)).all()
+
+    assert result == [(1, "Jarvis-PM")]
+
+
 def test_migration_script_can_run_from_repo_root():
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(

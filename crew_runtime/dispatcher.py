@@ -111,6 +111,9 @@ class DatabaseQueueDispatcher:
         query = TaskQueue.query.filter_by(status="pending")
         if target_agent:
             query = query.filter_by(target_agent=target_agent)
+        bind = db.session.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            query = query.with_for_update(skip_locked=True)
 
         queue_entries = (
             query.order_by(priority_rank.asc(), TaskQueue.created_at.asc()).limit(limit).all()
@@ -119,6 +122,7 @@ class DatabaseQueueDispatcher:
             queue_entry.status = "processing"
             queue_entry.started_at = datetime.now(UTC)
         if queue_entries:
+            db.session.flush()
             db.session.commit()
         return queue_entries
 
