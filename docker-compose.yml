@@ -1,0 +1,33 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mission-control-app
+    ports:
+      - "5001:5001"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5001
+      FLASK_DEBUG: "true"
+      DATABASE_URL: sqlite:////app/instance/mission_control.db
+      ENABLE_AGENT_WAKEUPS: "false"
+      MISSION_CONTROL_API_URL: http://localhost:5001/api
+      MISSION_CONTROL_INSTANCE_PATH: /app/instance
+      MISSION_CONTROL_RUNTIME_DIR: /app/runtime
+      MISSION_CONTROL_QUEUE_DIR: /app/runtime/message_queue
+      MISSION_CONTROL_HEARTBEAT_LOCK_DIR: /app/runtime/locks
+      MISSION_CONTROL_HEARTBEAT_SCRIPT_DIR: /app/scripts
+    volumes:
+      - .:/app
+      - mission_control_instance:/app/instance
+      - mission_control_runtime:/app/runtime
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mission_control_instance:
+  mission_control_runtime:

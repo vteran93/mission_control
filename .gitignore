@@ -24,6 +24,9 @@ dist/
 
 # Logs
 *.log
+runtime/
+instance/
+.env
 
 # OS
 .DS_Store
