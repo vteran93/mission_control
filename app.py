@@ -14,17 +14,7 @@ from flask import Flask, current_app, jsonify, render_template, request
 from flask_cors import CORS
 
 from config import load_settings
-from database import (
-    Agent,
-    DaemonLog,
-    Document,
-    Message,
-    Notification,
-    Sprint,
-    Task,
-    TaskQueue,
-    db,
-)
+from database import Agent, DaemonLog, Document, Message, Notification, Sprint, Task, TaskQueue, db
 
 
 def ensure_runtime_directories(app: Flask) -> None:
@@ -72,26 +62,12 @@ def trigger_agent_wake(agent_label: str) -> None:
     thread.start()
 
 
-def seed_initial_agents() -> None:
-    if Agent.query.count() > 0:
-        return
-
-    db.session.add_all(
-        [
-            Agent(name="Jarvis-Dev", role="dev", status="idle"),
-            Agent(name="Jarvis-QA", role="qa", status="idle"),
-        ]
-    )
-    db.session.commit()
-
-
 def init_db(app: Flask | None = None) -> None:
     application = app or current_app._get_current_object()
+    ensure_runtime_directories(application)
+    from db_bootstrap import initialize_database
 
-    with application.app_context():
-        ensure_runtime_directories(application)
-        db.create_all()
-        seed_initial_agents()
+    initialize_database(application)
 
 
 def create_app(config_overrides: dict | None = None) -> Flask:

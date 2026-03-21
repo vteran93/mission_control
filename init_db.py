@@ -1,9 +1,10 @@
-from app import create_app, init_db
+from app import create_app
+from db_bootstrap import initialize_database
 
 
 def init_database() -> None:
     app = create_app()
-    init_db(app)
+    initialize_database(app)
     print("✅ Base de datos lista.")
     print(f"   URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 

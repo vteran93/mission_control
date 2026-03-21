@@ -29,6 +29,7 @@ class Settings:
     debug: bool
     enable_agent_wakeups: bool
     api_base_url: str
+    alembic_ini_path: Path
     supported_agent_labels: tuple[str, ...] = DEFAULT_AGENT_LABELS
 
     def to_flask_config(self) -> dict[str, Any]:
@@ -42,6 +43,7 @@ class Settings:
             "MISSION_CONTROL_HEARTBEAT_LOCK_DIR": str(self.heartbeat_lock_dir),
             "MISSION_CONTROL_HEARTBEAT_SCRIPT_DIR": str(self.heartbeat_script_dir),
             "MISSION_CONTROL_API_URL": self.api_base_url,
+            "ALEMBIC_INI_PATH": str(self.alembic_ini_path),
             "SUPPORTED_AGENT_LABELS": self.supported_agent_labels,
             "ENABLE_AGENT_WAKEUPS": self.enable_agent_wakeups,
             "HOST": self.host,
@@ -69,6 +71,7 @@ def load_settings(base_dir: str | Path | None = None) -> Settings:
         f"sqlite:///{(instance_path / 'mission_control.db').resolve()}",
     )
     api_base_url = os.getenv("MISSION_CONTROL_API_URL", f"http://localhost:{port}/api")
+    alembic_ini_path = Path(os.getenv("ALEMBIC_INI_PATH", resolved_base_dir / "alembic.ini"))
 
     return Settings(
         base_dir=resolved_base_dir,
@@ -86,4 +89,5 @@ def load_settings(base_dir: str | Path | None = None) -> Settings:
             default=False,
         ),
         api_base_url=api_base_url,
+        alembic_ini_path=alembic_ini_path,
     )
