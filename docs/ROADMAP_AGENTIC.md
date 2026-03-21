@@ -1,143 +1,398 @@
-# Roadmap: Plataforma Agentic AI Standalone
+# Roadmap Agentic de Mission Control
 
-Este roadmap convierte el prompt de `docs/AGENTIC_PROMPT.md` en un plan ejecutable con épicas, sprints y tickets específicos (user stories) para llegar al objetivo macro.
+**Fecha base**: 2026-03-21  
+**Estado base**: `mission_control` ya tiene Flask + Postgres operativos, pero el runtime sigue acoplado a OpenClaw/Clawbot.  
+**Objetivo macro**: convertir `mission_control` en una software factory `CrewAI-only` capaz de leer documentos de especificacion como `docs/example_input_project/requirements.md` y `docs/example_input_project/roadmap.md`, construir el plan de entrega, ejecutar el desarrollo y cerrar el ciclo SCRUM completo de forma desatendida.
 
-## Objetivo macro
-Construir una plataforma **standalone** con agentes propios en LangChain, instancias LLM separadas por rol, interfaz de chat propia, panel de control configurable y observabilidad completa, permitiendo **crear agentes por copy/paste de role/alma/memory** sin tocar código.
+## Resultado esperado
 
-## Épicas (alto nivel)
-1. **E1 — Fundaciones & Arquitectura**
-2. **E2 — Núcleo de Agentes (orquestación, roles, memoria)**
-3. **E3 — Panel de Control (configuración y versiones)**
-4. **E4 — Interfaz de Chat (multi‑agente)**
-5. **E5 — Observabilidad & Operación**
-6. **E6 — Seguridad, Entornos y Deploy**
+Al terminar este roadmap, Mission Control debe poder:
 
----
+1. Ingerir documentos de requerimientos y roadmap en Markdown.
+2. Normalizarlos a un `Project Blueprint` persistido en Postgres.
+3. Generar backlog, epics, sprints, criterios de aceptacion y dependencias.
+4. Ejecutar crews de CrewAI para arquitectura, desarrollo, QA, code review, documentacion y release.
+5. Usar modelos locales de Ollama como fuerza de trabajo principal.
+6. Usar modelos Bedrock como orquestadores, senior reviewers, tomadores de decision y desbloqueadores.
+7. Sincronizar repositorio, issues, branches, PRs y artifacts con GitHub.
+8. Registrar en Postgres el tracking completo de ejecucion, feedback por etapa SCRUM y retrospectivas.
+9. Operar sin intervencion humana continua; el humano solo configura credenciales, proveedores y conectores como GitHub, Ollama y Bedrock.
 
-## Plan de Sprints (propuesta)
-> Duración sugerida: 2 semanas por sprint. Ajustar según capacidad del equipo.
+## Principios no negociables
 
-### Sprint 0 — Discovery & Definición
-**Objetivo:** Alinear visión, riesgos y arquitectura target.
-- **E1-T1**: Inventario del sistema actual (openclaw/molbolt/clawde) y mapa de dependencias a reemplazar.
-- **E1-T2**: Documento de arquitectura target (componentes, flujos, responsabilidades).
-- **E1-T3**: Definición de roles base + prompts iniciales (system/developer).
-- **E1-T4**: Backlog inicial + criterios de aceptación finales.
+- Toda la orquestacion agentic corre sobre CrewAI.
+- `mission_control` conserva el rol de sistema de registro y observabilidad.
+- Postgres es la fuente de verdad para planes, ejecuciones, handoffs, artifacts, feedback y retrospectives.
+- Estrategia `local-first`: Ollama ejecuta los workers por defecto; Bedrock entra por complejidad, ambiguedad, desbloqueo, revision o escalamiento.
+- No se depende de OpenClaw, Clawbot ni colas filesystem en el camino principal.
+- El sistema debe poder correr sin prompts hardcodeados por proyecto; los insumos vienen de documentos y configuracion.
+- Cada etapa debe dejar evidencia reproducible: entrada, decision, output, validacion y costo/latencia del modelo.
 
-**Entregables:** Arquitectura target + backlog priorizado.
+## Lectura del caso de ejemplo
 
-### Sprint 1 — Core de Agentes (MVP técnico)
-**Objetivo:** Core operativo con agentes y memoria configurables.
-- **E2-T1**: Servicio de orquestación LangChain (multi‑agente).
-- **E2-T2**: Soporte de instancias LLM separadas por rol.
-- **E2-T3**: Implementar almacenamiento de memoria por agente (sliding window + summary).
-- **E2-T4**: Contrato de API para ejecución de agentes (REST/WS).
+Los documentos de `docs/example_input_project/` dejan claro el contrato de entrada que Mission Control debe soportar:
 
-**Entregables:** Core de agentes funcional (sin UI).
+- `requirements.md` describe arquitectura objetivo, agentes, tools, modelos de datos, flujo de ejecucion y criterios de negocio.
+- `roadmap.md` describe la descomposicion de entrega en epics, tickets, dependencias, estimaciones y criterios de aceptacion.
 
-### Sprint 2 — Panel de Control (MVP)
-**Objetivo:** Configuración de agentes desde UI.
-- **E3-T1**: CRUD de agentes con campos role/alma/memory.
-- **E3-T2**: Gestión de prompts system/developer por agente.
-- **E3-T3**: Selector de modelo LLM por agente (proveedor + modelo).
-- **E3-T4**: Versionado básico de prompts (historial + rollback).
+Mission Control debe convertir ambos documentos en una estructura canonica unica:
 
-**Entregables:** Panel operativo con configuración de agentes sin código.
+- `Project Blueprint`
+- `Capability Map`
+- `Execution Plan`
+- `Backlog`
+- `Sprint Plan`
+- `Acceptance Matrix`
 
-### Sprint 3 — Chat Multi‑agente (MVP)
-**Objetivo:** UI de chat y conversaciones multi‑agente.
-- **E4-T1**: UI de chat con selección de agentes.
-- **E4-T2**: Conversaciones persistentes (threads).
-- **E4-T3**: Integración API chat ↔ orquestador.
+## Arquitectura target
 
-**Entregables:** Chat usable con agentes configurables.
+```text
+                           +----------------------------------+
+                           |  UI de configuracion minima      |
+                           |  - API keys                      |
+                           |  - GitHub repo / org             |
+                           |  - perfiles de modelos           |
+                           +----------------+-----------------+
+                                            |
+                                            v
++-------------------+      +----------------+------------------+
+| Spec Intake Crew  | ---> |  Mission Control API + Postgres  |
+| Bedrock planner   |      |  source of truth                 |
+| parsea docs       |      |  blueprints / backlog / runs     |
++---------+---------+      +----------------+------------------+
+          |                                   |
+          v                                   v
++---------+---------+      +------------------+----------------+
+| Planning Crew     | ---> |  Crew Runtime (CrewAI)            |
+| Bedrock PM/SM     |      |  Process.hierarchical             |
+| genera backlog    |      |  routing local/cloud              |
++---------+---------+      +------+---------------+------------+
+          |                       |               |
+          |                       |               |
+          v                       v               v
++---------+---------+   +---------+------+  +-----+----------------+
+| Delivery Crew     |   | Review Crew    |  | Retro Crew           |
+| Ollama workers    |   | Bedrock senior |  | Bedrock facilitator  |
+| junior/senior dev |   | QA / unblocker |  | feedback y mejoras   |
++---------+---------+   +---------+------+  +-----------+----------+
+          |                         |                     |
+          +------------+------------+---------------------+
+                       |
+                       v
+              +--------+---------+
+              | GitHub / Workspace|
+              | code / tests / PR |
+              +-------------------+
+```
 
-### Sprint 4 — Observabilidad & Control
-**Objetivo:** Logs, métricas, trazas y auditoría.
-- **E5-T1**: Logging estructurado por agente y conversación.
-- **E5-T2**: Métricas de uso por agente y costos LLM.
-- **E5-T3**: Trazas de tool usage y decisiones.
+## Crew topology objetivo
 
-**Entregables:** Dashboard operativo con observabilidad.
+### 1. Intake Crew
+- `spec_analyst` (Bedrock): interpreta `requirements.md`, `roadmap.md`, extrae requerimientos funcionales/no funcionales y detecta contradicciones.
+- `delivery_analyst` (Bedrock): transforma el roadmap fuente en backlog ejecutable con dependencias, estimaciones y Definition of Done.
 
-### Sprint 5 — Seguridad, Entornos y Deploy
-**Objetivo:** Operación segura y escalable.
-- **E6-T1**: Separación de entornos (dev/staging/prod) con configs.
-- **E6-T2**: Autenticación y roles de usuario en panel.
-- **E6-T3**: Pipeline de deploy (CI/CD) + backups.
+### 2. Planning Crew
+- `product_manager` (Bedrock): define alcance, roadmap ejecutable y prioridades.
+- `scrum_master` (Bedrock): arma sprint goals, capacidad, riesgos y ceremonias automáticas.
+- `solution_architect` (Bedrock): genera arquitectura target, contratos tecnicos y ADRs iniciales.
 
-**Entregables:** Plataforma lista para producción.
+### 3. Delivery Crew
+- `junior_dev_local` (Ollama, ejemplo `qwen2.5-coder:latest`): implementacion de tickets acotados.
+- `senior_dev_local` (Ollama o Bedrock segun complejidad): integracion, refactor, tareas transversales.
+- `test_engineer_local` (Ollama): pruebas unitarias, integracion y fixes derivados.
+- `tech_writer_local` (Ollama): README, docs tecnicas y changelogs de artifacts.
 
----
+### 4. Review and Unblock Crew
+- `senior_reviewer` (Bedrock): code review, evaluacion de riesgos, consistencia arquitectonica.
+- `qa_lead` (Bedrock): decide si una entrega pasa, vuelve a desarrollo o requiere replanning.
+- `blocker_resolver` (Bedrock): entra cuando fallan workers locales, hay ambiguedad en specs o regresiones repetidas.
 
-## Tickets detallados por épica
+### 5. Retro and Learning Crew
+- `sprint_reviewer` (Bedrock): resume resultados del sprint y compara contra acceptance criteria.
+- `retro_facilitator` (Bedrock): genera retrospective, acciones correctivas y ajustes de prompts/model routing.
 
-### E1 — Fundaciones & Arquitectura
-- **E1-T1**: Mapear dependencias actuales y puntos de integración.
-  - Criterio: Documento con módulos a reemplazar/reusar.
-- **E1-T2**: Definir arquitectura target (diagramas y contratos de API).
-  - Criterio: Diagrama en texto + flujos principales.
-- **E1-T3**: Diseñar catálogo de roles iniciales y prompts base.
-  - Criterio: Roles + prompts en formato versionable.
-- **E1-T4**: Modelo de datos del panel (agentes, prompts, memoria, entornos).
-  - Criterio: Esquema validado por backend.
+## Estrategia de modelos
 
-### E2 — Núcleo de Agentes
-- **E2-T1**: Orquestador multi‑agente con LangChain.
-  - Criterio: Ejecutar N agentes con routing configurable.
-- **E2-T2**: Instancias LLM separadas por rol.
-  - Criterio: Cambiar proveedor/modelo por agente sin tocar código.
-- **E2-T3**: Persistencia de memoria por agente.
-  - Criterio: Sliding window + summary + vector store opcional.
-- **E2-T4**: Templates de agente (duplicación por plantilla).
-  - Criterio: Crear agente nuevo con copy/paste de role/alma/memory.
+| Perfil | Proveedor | Modelo default | Responsabilidad |
+|---|---|---|---|
+| Worker coder local | Ollama | `qwen2.5-coder:latest` | Implementacion de tickets, tests, refactors y docs |
+| Planner / PM | Bedrock | configurable | Interpretacion de specs, backlog, decisiones de prioridad |
+| Architect / Senior reviewer | Bedrock | configurable | Diseño, decisiones tecnicas, review y desbloqueos |
+| QA escalado | Bedrock | configurable | Diagnostico de fallas complejas y gating final |
 
-### E3 — Panel de Control
-- **E3-T1**: CRUD de agentes y plantillas.
-  - Criterio: Crear/editar/duplicar agentes desde UI.
-- **E3-T2**: Editor de prompts con versionado.
-  - Criterio: Historial + rollback por agente.
-- **E3-T3**: Configuración de modelos por rol.
-  - Criterio: Selector de modelo y parámetros (temp/top_p).
-- **E3-T4**: Gestión de herramientas por agente.
-  - Criterio: Habilitar/deshabilitar tools desde UI.
+Reglas de routing:
 
-### E4 — Chat Multi‑agente
-- **E4-T1**: UI de chat con contexto multi‑agente.
-  - Criterio: Selección de agente y visualización de respuestas.
-- **E4-T2**: Conversaciones persistentes.
-  - Criterio: Threads con historial por usuario.
-- **E4-T3**: Streaming de respuestas.
-  - Criterio: Soporte SSE/WS.
+- Ollama es el camino por defecto para produccion de codigo.
+- Bedrock se activa para tareas con alta ambiguedad, fallas repetidas, conflictos entre documentos, redefinicion de alcance o reviews finales.
+- El mapeo `rol -> proveedor -> modelo -> temperatura -> max_tokens` vive en Postgres y es editable desde UI/API.
+- El ejemplo `qwen2.5-coder:latest` no queda hardcodeado; debe ser el perfil seed inicial del sistema.
 
-### E5 — Observabilidad & Operación
-- **E5-T1**: Logging estructurado.
-  - Criterio: Logs por agente, request y tool.
-- **E5-T2**: Métricas de costos LLM.
-  - Criterio: Reporte por agente y por conversación.
-- **E5-T3**: Auditoría de decisiones.
-  - Criterio: Registro de prompts, tools y outputs.
+## Modelo de datos target en Postgres
 
-### E6 — Seguridad, Entornos y Deploy
-- **E6-T1**: Separación de entornos.
-  - Criterio: Config por entorno con overrides.
-- **E6-T2**: Autenticación y autorización.
-  - Criterio: Roles (admin/editor/reader).
-- **E6-T3**: CI/CD + backups.
-  - Criterio: Pipeline y plan de recuperación.
+El esquema actual debe ampliarse para soportar planeacion, ejecucion agentic y feedback SCRUM. Tablas nuevas o equivalentes:
 
----
+- `spec_documents`: documento fuente, version, hash, tipo (`requirements`, `roadmap`, `adr`, `notes`).
+- `spec_sections`: secciones parseadas y vinculadas al documento original.
+- `project_blueprints`: representacion normalizada del proyecto objetivo.
+- `blueprint_requirements`: requerimientos funcionales, no funcionales y restricciones.
+- `blueprint_capabilities`: capacidades y modulos detectados.
+- `blueprint_acceptance_criteria`: criterios de aceptacion atomicos.
+- `blueprint_dependencies`: dependencias y precedencias entre items.
+- `delivery_epics`, `delivery_stories`, `delivery_tasks`: backlog canonico persistido.
+- `sprint_cycles`: sprint, objetivo, capacidad, fechas, estado.
+- `sprint_stage_events`: planning, execution, review, qa_gate, release, retrospective.
+- `stage_feedback`: hallazgos y feedback por etapa SCRUM.
+- `retrospective_items`: que salio bien, que salio mal, accion, owner, fecha objetivo.
+- `crew_definitions`: crews, roles, prompts, tools y politicas.
+- `model_profiles`: proveedor, modelo, parametros, uso previsto, fallback.
+- `agent_runs`: corrida por agente, input, output, estado, duracion, costo y proveedor.
+- `task_executions`: intento por ticket con retries, resultado y artifacts.
+- `handoffs`: traspasos entre agentes, razones y contexto.
+- `artifacts`: archivos generados, ruta, hash, tipo, relacion con task/run/PR.
+- `test_runs`: suites ejecutadas, coverage, estado, logs y regresiones.
+- `review_findings`: findings de review, severidad, estado y resolucion.
+- `github_sync_events`: repo, branch, commit, issue, PR, merge, comentario, check status.
+- `llm_invocations`: trazabilidad fina por invocacion de modelo.
 
-## Dependencias críticas
-- E2 depende de E1 (arquitectura + modelo de datos).
-- E3 depende de E2 (configuración de agentes).
-- E4 depende de E2 y E3 (orquestador + configuración).
-- E5 depende de E2/E4 (eventos y logs).
-- E6 puede ir en paralelo desde Sprint 2.
+## Integraciones obligatorias
 
-## Recomendaciones Scrum
-- Refinamiento semanal del backlog.
-- Definir *Definition of Done* por ticket (tests, doc, QA).
-- Demo por sprint con feedback del equipo de producto.
+- `Ollama`: discovery de modelos, healthcheck, ejecucion local y control de timeouts.
+- `AWS Bedrock`: clientes para roles de orquestacion, revision y desbloqueo.
+- `GitHub`: repositorio, branches, pull requests, checks, comments, labels y releases.
+- `Workspace local`: clonacion, ramas efimeras, ejecucion de tests, linters, builds y empaquetado.
+- `Mission Control UI`: configuracion minima y monitoreo de corridas.
 
+## Impacto sobre el repositorio actual
+
+Reutilizar:
+
+- `app.py` y la API Flask como superficie de control y consulta.
+- `database.py`, migraciones y bootstrap Postgres como base de persistencia.
+- `templates/` y `static/` como base del panel operador.
+
+Reemplazar o retirar del camino principal:
+
+- `openclaw_orchestrator/`
+- `daemon/spawner.py`
+- la cola filesystem y la logica asociada a `trigger_agent_wake()`
+- scripts heredados ligados a OpenClaw/Clawbot
+- cualquier integracion que dependa de `sessions_spawn` o rutas locales externas
+
+## Definition of Done del producto agentic
+
+Mission Control solo se considera listo cuando cumple todo esto:
+
+- Dado un `requirements.md` y un `roadmap.md`, genera un `Project Blueprint` sin edicion manual.
+- Crea backlog, sprints y asignaciones de agentes en Postgres.
+- Ejecuta desarrollo, testing y review usando CrewAI sin depender de OpenClaw/Clawbot.
+- Usa Ollama como workforce principal y Bedrock como capa de orquestacion/escalamiento.
+- Registra tracking completo de ejecucion, feedback SCRUM y retrospective en Postgres.
+- Sincroniza artifacts y progreso con GitHub.
+- Un humano nuevo puede operar el sistema solo configurando credenciales, modelos y repo.
+
+## Epicas
+
+| Epic | Nombre | Objetivo | Estimacion |
+|---|---|---|---|
+| EP-0 | Foundation Cleanup | retirar runtime heredado y preparar base CrewAI-only | 1.5 semanas |
+| EP-1 | Spec Intake Engine | convertir documentos de especificacion a blueprint canonico | 2 semanas |
+| EP-2 | Postgres Delivery Model | persistir backlog, runs, feedback SCRUM y retrospectives | 1.5 semanas |
+| EP-3 | CrewAI Runtime Hybrid | runtime CrewAI con Ollama workers y Bedrock orchestrators | 2 semanas |
+| EP-4 | Autonomous Scrum Planner | planificacion automatica de epics, stories, sprints y gates | 1.5 semanas |
+| EP-5 | Autonomous Delivery Loop | codificacion, testing, review, fixes y release desatendidos | 3 semanas |
+| EP-6 | GitHub + Operator UX | setup minimo del humano y observabilidad operativa | 1.5 semanas |
+| EP-7 | Hardening & Benchmark | robustez, seguridad y benchmark con proyecto de ejemplo | 1.5 semanas |
+| **Total** |  |  | **~14.5 semanas** |
+
+## Plan de ejecucion por fases
+
+### Fase 0 - Foundation Cleanup
+
+Objetivo: dejar el repositorio listo para soportar un runtime CrewAI-only sin arrastrar decisiones legacy.
+
+Tickets:
+
+- `AG-001` Reemplazar la cola filesystem y `trigger_agent_wake()` por un dispatcher interno basado en DB.
+- `AG-002` Aislar el runtime heredado en una capa de compatibilidad temporal y sacarlo del camino principal.
+- `AG-003` Definir modulo `crew_runtime/` y contratos internos para agentes, tools y providers.
+- `AG-004` Centralizar configuracion de Ollama, Bedrock, GitHub y profiles de modelos.
+- `AG-005` Crear smoke tests de arranque del runtime agentic y healthchecks de proveedores.
+
+Criterios de aceptacion:
+
+- No hay dependencia operativa obligatoria a OpenClaw/Clawbot en el flujo principal.
+- Existe un runtime propio inicial consumible desde API/CLI.
+- Los proveedores externos quedan modelados como configuracion y no como hardcodes.
+
+### Fase 1 - Spec Intake Engine
+
+Objetivo: que Mission Control entienda documentos como los del ejemplo y genere un modelo canonico del proyecto.
+
+Tickets:
+
+- `AG-101` Definir `ProjectBlueprint`, `RequirementItem`, `AcceptanceItem`, `RoadmapEpic`, `RoadmapTicket`.
+- `AG-102` Implementar parser de Markdown estructurado para `requirements.md`.
+- `AG-103` Implementar parser de Markdown estructurado para `roadmap.md`.
+- `AG-104` Implementar reconciliacion entre documentos: inconsistencias, gaps, dependencias faltantes, duplicados.
+- `AG-105` Crear `Intake Crew` en CrewAI para producir blueprint validado y score de confianza.
+- `AG-106` Persistir versionado de specs y blueprint derivado.
+- `AG-107` Exponer endpoint/UI para cargar o registrar documentos fuente por proyecto.
+
+Criterios de aceptacion:
+
+- El sistema puede leer los dos documentos de ejemplo y producir un blueprint unico.
+- El blueprint conserva trazabilidad a seccion y documento de origen.
+- Los conflictos entre documentos quedan marcados y pueden disparar escalamiento Bedrock.
+
+### Fase 2 - Postgres Delivery Model
+
+Objetivo: llevar a Postgres el modelo completo de ejecucion agentic, SCRUM y aprendizaje.
+
+Tickets:
+
+- `AG-201` Crear migraciones para blueprints, backlog, sprints, agent_runs, task_executions y artifacts.
+- `AG-202` Agregar tablas de `stage_feedback` y `retrospective_items`.
+- `AG-203` Diseñar estados canonicos por sprint y por task execution.
+- `AG-204` Crear APIs para consultar blueprint, backlog, timeline de sprint y resultados de corrida.
+- `AG-205` Registrar invocaciones LLM, handoffs y decisiones de gating.
+- `AG-206` Añadir vistas/reportes para costo, throughput, retry rate y defect leakage.
+
+Criterios de aceptacion:
+
+- Todo el ciclo de planeacion y ejecucion queda persistido en Postgres.
+- Se puede reconstruir que agente hizo que, con que modelo, sobre que ticket y con que resultado.
+- El sistema soporta reportes de sprint review y retrospective sin fuentes externas.
+
+### Fase 3 - CrewAI Runtime Hybrid
+
+Objetivo: materializar el runtime de crews, tools y model routing local/cloud.
+
+Tickets:
+
+- `AG-301` Implementar `CrewRuntime` con `Process.hierarchical`.
+- `AG-302` Crear `ModelRegistry` con perfiles configurables para Ollama y Bedrock.
+- `AG-303` Crear tools API-first para Mission Control: backlog, context, status, artifacts, handoffs, feedback.
+- `AG-304` Crear tools de workspace: git, shell, tests, formatter, coverage, docs.
+- `AG-305` Crear seeds de crews: `Intake`, `Planning`, `Delivery`, `Review`, `Retro`.
+- `AG-306` Implementar politicas de escalamiento de Ollama hacia Bedrock.
+- `AG-307` Persistir telemetria de runs, retries, timeouts y fallbacks por provider.
+
+Criterios de aceptacion:
+
+- Un crew puede arrancar desde Mission Control usando solo CrewAI y providers configurados.
+- El worker local por defecto usa Ollama.
+- Un bloqueo real puede escalar automaticamente a un rol Bedrock y volver con decision persistida.
+
+### Fase 4 - Autonomous Scrum Planner
+
+Objetivo: convertir el blueprint en backlog ejecutable, sprints y ceremonias automaticas.
+
+Tickets:
+
+- `AG-401` Generar backlog inicial desde blueprint: epics, stories, tasks, dependencias y estimaciones.
+- `AG-402` Crear `Scrum Planning Crew` para priorizacion y asignacion de capacidad.
+- `AG-403` Generar `Definition of Ready` y `Definition of Done` por ticket.
+- `AG-404` Crear reglas para replanificacion automatica cuando hay bloqueos o cambios de alcance.
+- `AG-405` Persistir ceremonias: planning, daily summary, review, retrospective.
+- `AG-406` Crear score de riesgo por sprint y triggers de escalamiento.
+
+Criterios de aceptacion:
+
+- Desde specs se obtienen sprints listos para ejecucion sin crear tickets manualmente.
+- Cada ticket tiene acceptance criteria y dependencias claras.
+- El sistema puede replanificar si falla un bloque critico o si baja la confianza del blueprint.
+
+### Fase 5 - Autonomous Delivery Loop
+
+Objetivo: ejecutar implementacion end-to-end sin intervencion humana continua.
+
+Tickets:
+
+- `AG-501` Implementar `Delivery Crew` para tomar tickets listos, crear rama, editar codigo y correr validaciones.
+- `AG-502` Implementar `Review Crew` para findings, severidad, retorno a desarrollo y aprobacion.
+- `AG-503` Implementar `QA Gate` con reglas sobre tests, lint, coverage y regresiones.
+- `AG-504` Implementar `Artifact Builder` para docs, changelog, ADRs y evidencias de test.
+- `AG-505` Crear loop de autocorreccion: si fallan tests, abrir subtask, reintentar y cerrar evidencia.
+- `AG-506` Integrar release candidate, merge automatizado y cierre de sprint.
+- `AG-507` Registrar resultados del sprint review y alimentar la retrospective.
+
+Criterios de aceptacion:
+
+- Mission Control puede generar codigo a partir del backlog y dejar evidencia del cambio.
+- El sistema crea commits, branches y PRs con trazabilidad a ticket y sprint.
+- Si un intento falla, el sistema reintenta, escala o replantea sin requerir operador humano.
+
+### Fase 6 - GitHub + Operator UX
+
+Objetivo: reducir el rol humano a configuracion y supervision.
+
+Tickets:
+
+- `AG-601` Crear wizard/UI para registrar `GITHUB_TOKEN` o GitHub App, `OLLAMA_HOST`, `AWS_REGION`, credenciales Bedrock y perfiles de modelos.
+- `AG-602` Crear UI para vincular repositorios, ramas protegidas y politicas de merge.
+- `AG-603` Crear dashboard de blueprint, backlog, sprints, agent runs, stage feedback y retrospective.
+- `AG-604` Crear timeline unificado de artifacts, runs, PRs, bloqueos y decisiones.
+- `AG-605` Crear health dashboard de providers: Ollama models instalados, latencia y disponibilidad Bedrock.
+
+Criterios de aceptacion:
+
+- El operador solo necesita configurar credenciales e integraciones.
+- El estado operativo del sistema se puede monitorear desde Mission Control.
+- La UI permite diagnosticar donde fallo una corrida sin entrar a logs manuales.
+
+### Fase 7 - Hardening & Benchmark
+
+Objetivo: volver confiable el piloto y validar el caso de uso con el proyecto de ejemplo.
+
+Tickets:
+
+- `AG-701` Implementar politicas de seguridad para comandos, paths, secretos y acceso GitHub.
+- `AG-702` Implementar budget controls por proyecto, sprint, provider y modelo.
+- `AG-703` Añadir modo `simulation` y `dry-run` para intake, planning y delivery.
+- `AG-704` Crear benchmark automatizado usando `docs/example_input_project/requirements.md` y `docs/example_input_project/roadmap.md`.
+- `AG-705` Medir KPIs: lead time por ticket, retry rate, porcentaje de tickets completados, defectos encontrados en review, costo por sprint.
+- `AG-706` Cerrar rollout eliminando adapter legacy restante y documentando runbooks.
+
+Criterios de aceptacion:
+
+- El benchmark del proyecto de ejemplo corre de punta a punta.
+- Existen metricas objetivas de autonomia, calidad y costo.
+- El runtime legacy queda retirado del camino principal.
+
+## Secuencia recomendada
+
+1. Limpiar el runtime actual y fijar el contrato de providers.
+2. Construir primero intake + blueprint + backlog antes de automatizar desarrollo.
+3. Modelar persistencia y trazabilidad en Postgres antes de aumentar autonomia.
+4. Montar el runtime CrewAI con Ollama workers y Bedrock escalations.
+5. Automatizar GitHub y gates de QA solo cuando haya evidencia persistida suficiente.
+6. Ejecutar benchmark del proyecto de ejemplo como criterio de salida real.
+
+## Riesgos principales y mitigaciones
+
+- **Riesgo: parsing fragil de documentos Markdown.**  
+  Mitigacion: parser estructurado + reconciliacion LLM + score de confianza + trazabilidad por seccion.
+
+- **Riesgo: workers locales insuficientes para tickets complejos.**  
+  Mitigacion: escalamiento automatico a Bedrock, split de tareas y politicas de retry.
+
+- **Riesgo: falsa autonomia sin observabilidad suficiente.**  
+  Mitigacion: todo run, artifact, feedback y decision queda persistido en Postgres.
+
+- **Riesgo: loops agentic costosos o inestables.**  
+  Mitigacion: budgets, max retries, circuit breakers, confidence thresholds y QA gates.
+
+- **Riesgo: GitHub automation sin controles.**  
+  Mitigacion: reglas por rama, merge gates, reviewers virtuales y dry-run obligatorio en bootstrap.
+
+## Entregable minimo viable
+
+El MVP correcto no es "un chat con agentes". El MVP correcto es este:
+
+- Subir `requirements.md` y `roadmap.md`.
+- Obtener blueprint y backlog listos en Postgres.
+- Lanzar un sprint automatico sobre un repo GitHub.
+- Ejecutar CrewAI con workers Ollama y revisores Bedrock.
+- Ver en Mission Control el tracking de tickets, artifacts, QA, sprint review y retrospective.
+
+Cuando ese flujo exista de punta a punta, `mission_control` ya habra dejado de ser solo un dashboard y se habra convertido en una software factory agentic operable.

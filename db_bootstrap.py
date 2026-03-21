@@ -20,6 +20,7 @@ def seed_initial_agents() -> None:
 
     db.session.add_all(
         [
+            Agent(name="Jarvis-PM", role="pm", status="idle"),
             Agent(name="Jarvis-Dev", role="dev", status="idle"),
             Agent(name="Jarvis-QA", role="qa", status="idle"),
         ]

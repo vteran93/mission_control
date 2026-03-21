@@ -32,3 +32,38 @@ def test_mission_control_api_uses_environment_base_url(monkeypatch):
 
     get_mock.assert_called_once_with("http://mission-control:5001/api/agents")
     assert api.agent_id == 7
+
+
+def test_send_message_to_agent_calls_queue_endpoint(monkeypatch):
+    monkeypatch.setenv("MISSION_CONTROL_API_URL", "http://mission-control:5001/api")
+    agent_api = load_agent_api_module()
+
+    existing_agent_response = Mock()
+    existing_agent_response.raise_for_status = Mock()
+    existing_agent_response.json.return_value = [{"id": 7, "name": "Jarvis-Dev"}]
+
+    queued_response = Mock()
+    queued_response.raise_for_status = Mock()
+    queued_response.json.return_value = {"status": "queued", "message_id": "12"}
+
+    monkeypatch.setattr(agent_api.requests, "get", Mock(return_value=existing_agent_response))
+    post_mock = Mock(return_value=queued_response)
+    monkeypatch.setattr(agent_api.requests, "post", post_mock)
+
+    api = agent_api.MissionControlAPI("Jarvis-Dev")
+    api.send_message = Mock()
+
+    payload = api.send_message_to_agent("Jarvis-QA", "Revisa este cambio", task_id=9, priority="high")
+
+    post_mock.assert_called_once_with(
+        "http://mission-control:5001/api/send-agent-message",
+        json={
+            "target_agent": "jarvis-qa",
+            "message": "Revisa este cambio",
+            "task_id": 9,
+            "from_agent": "Jarvis-Dev",
+            "priority": "high",
+        },
+    )
+    assert payload["status"] == "queued"
+    assert payload["label"] == "jarvis-qa"

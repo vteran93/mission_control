@@ -204,7 +204,7 @@ class DaemonLog(db.Model):
 
 
 class TaskQueue(db.Model):
-    """Cola de tareas para spawn automático de agentes"""
+    """Cola de dispatch del runtime interno"""
     __tablename__ = 'task_queue'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -219,6 +219,7 @@ class TaskQueue(db.Model):
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     
+    # Legacy field kept for schema compatibility; Phase 0 uses it as generic runtime session key.
     clawdbot_session_key = db.Column(db.Text)
     error_message = db.Column(db.Text)
     retry_count = db.Column(db.Integer, default=0)
@@ -238,6 +239,7 @@ class TaskQueue(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'runtime_session_key': self.clawdbot_session_key,
             'clawdbot_session_key': self.clawdbot_session_key,
             'error_message': self.error_message,
             'retry_count': self.retry_count

@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-import fcntl
-import glob
-import json
-import subprocess
-import threading
-import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,6 +8,7 @@ from flask import Flask, current_app, jsonify, render_template, request
 from flask_cors import CORS
 
 from config import load_settings
+from crew_runtime import AgenticRuntime
 from database import Agent, DaemonLog, Document, Message, Notification, Sprint, Task, TaskQueue, db
 
 
@@ -30,36 +25,6 @@ def ensure_runtime_directories(app: Flask) -> None:
 def database_scheme(database_uri: str) -> str:
     parsed = urlparse(database_uri)
     return parsed.scheme or "unknown"
-
-
-def trigger_agent_wake(agent_label: str) -> None:
-    app = current_app._get_current_object()
-
-    if not app.config["ENABLE_AGENT_WAKEUPS"]:
-        return
-
-    lock_file = Path(app.config["MISSION_CONTROL_HEARTBEAT_LOCK_DIR"]) / f"{agent_label}.lock"
-    script_path = Path(app.config["MISSION_CONTROL_HEARTBEAT_SCRIPT_DIR"]) / f"{agent_label}-heartbeat.sh"
-
-    def run_heartbeat() -> None:
-        try:
-            lock_file.parent.mkdir(parents=True, exist_ok=True)
-            with lock_file.open("w", encoding="utf-8") as lock:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-                if script_path.exists():
-                    subprocess.run(
-                        ["/bin/bash", str(script_path)],
-                        timeout=60,
-                        check=False,
-                    )
-        except BlockingIOError:
-            print(f"{agent_label} already running, skipping")
-        except Exception as exc:
-            print(f"Error triggering {agent_label}: {exc}")
-
-    thread = threading.Thread(target=run_heartbeat, daemon=True)
-    thread.start()
 
 
 def init_db(app: Flask | None = None) -> None:
@@ -81,7 +46,11 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     ensure_runtime_directories(app)
     CORS(app)
     db.init_app(app)
+    runtime = AgenticRuntime(settings)
+    app.extensions["mission_control_runtime"] = runtime
+    app.extensions["queue_dispatcher"] = runtime.dispatcher
     register_routes(app)
+    runtime.start_background_dispatcher(app)
     return app
 
 
@@ -99,6 +68,7 @@ def register_routes(app: Flask) -> None:
                 "service": "mission-control",
                 "database": {"scheme": database_scheme(app.config["SQLALCHEMY_DATABASE_URI"])},
                 "agent_wakeups_enabled": app.config["ENABLE_AGENT_WAKEUPS"],
+                "agentic_runtime_enabled": app.config["MISSION_CONTROL_RUNTIME_ENABLED"],
             }
         )
 
@@ -245,9 +215,10 @@ def register_routes(app: Flask) -> None:
         db.session.commit()
 
         content_lower = data["content"].lower()
+        dispatcher = app.extensions["queue_dispatcher"]
         for agent_label in app.config["SUPPORTED_AGENT_LABELS"]:
             if agent_label in content_lower:
-                trigger_agent_wake(agent_label)
+                dispatcher.enqueue_message(message=message, target_agent=agent_label)
 
         return jsonify(message.to_dict()), 201
 
@@ -312,30 +283,12 @@ def register_routes(app: Flask) -> None:
         if target_agent not in app.config["SUPPORTED_AGENT_LABELS"]:
             return jsonify({"error": f"Unsupported target_agent: {target_agent}"}), 400
 
-        message = Message(
-            task_id=task_id,
+        _, queue_entry = app.extensions["queue_dispatcher"].create_message_and_enqueue(
+            target_agent=target_agent,
+            message_content=message_content,
             from_agent=data.get("from_agent", "Victor"),
-            content=f"📤 → {target_agent}: {message_content}",
-        )
-        db.session.add(message)
-        db.session.commit()
-
-        queue_dir = Path(app.config["MISSION_CONTROL_QUEUE_DIR"])
-        queue_dir.mkdir(parents=True, exist_ok=True)
-
-        message_id = str(uuid.uuid4())[:8]
-        message_file = queue_dir / f"{message_id}_{target_agent}.json"
-        message_file.write_text(
-            json.dumps(
-                {
-                    "target_agent": target_agent,
-                    "message": message_content,
-                    "task_id": task_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+            task_id=task_id,
+            priority=data.get("priority", "normal"),
         )
 
         return (
@@ -344,8 +297,9 @@ def register_routes(app: Flask) -> None:
                     "status": "queued",
                     "target_agent": target_agent,
                     "message": message_content,
-                    "message_id": message_id,
-                    "info": "Mensaje en cola. Mission Control lo dejará disponible para el runtime de agentes.",
+                    "message_id": str(queue_entry.id),
+                    "queue_entry_id": queue_entry.id,
+                    "info": "Mensaje en cola en base de datos. Mission Control lo deja disponible para el runtime interno.",
                 }
             ),
             200,
@@ -353,32 +307,62 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/api/message-queue", methods=["GET"])
     def get_message_queue():
-        queue_dir = Path(app.config["MISSION_CONTROL_QUEUE_DIR"])
-        queue_dir.mkdir(parents=True, exist_ok=True)
-
-        messages_list = []
-        for filepath in sorted(glob.glob(str(queue_dir / "*.json"))):
-            try:
-                with open(filepath, "r", encoding="utf-8") as handle:
-                    data = json.load(handle)
-                data["message_id"] = Path(filepath).stem
-                data["filepath"] = filepath
-                messages_list.append(data)
-            except Exception as exc:
-                print(f"Error reading {filepath}: {exc}")
-
-        return jsonify(messages_list)
+        statuses = request.args.getlist("status")
+        if not statuses:
+            statuses = ["pending", "processing"]
+        queue_entries = app.extensions["queue_dispatcher"].list_entries(
+            statuses=tuple(statuses),
+            limit=min(int(request.args.get("limit", 100)), 200),
+        )
+        return jsonify(
+            [
+                app.extensions["queue_dispatcher"].serialize(queue_entry)
+                for queue_entry in queue_entries
+            ]
+        )
 
     @app.route("/api/message-queue/<message_id>", methods=["DELETE"])
     def delete_queued_message(message_id: str):
-        queue_dir = Path(app.config["MISSION_CONTROL_QUEUE_DIR"])
-        for filepath in glob.glob(str(queue_dir / f"{message_id}_*.json")):
-            try:
-                Path(filepath).unlink()
-                return jsonify({"status": "deleted", "message_id": message_id})
-            except Exception as exc:
-                return jsonify({"error": str(exc)}), 500
+        try:
+            queue_entry_id = int(message_id)
+        except ValueError:
+            return jsonify({"error": "Message id must be numeric"}), 400
+
+        deleted = app.extensions["queue_dispatcher"].delete_entry(queue_entry_id)
+        if deleted:
+            return jsonify({"status": "deleted", "message_id": message_id})
         return jsonify({"error": "Message not found"}), 404
+
+    @app.route("/api/runtime/health", methods=["GET"])
+    def runtime_health():
+        runtime = app.extensions["mission_control_runtime"]
+        return jsonify(runtime.healthcheck())
+
+    @app.route("/api/runtime/dispatch", methods=["POST"])
+    def runtime_dispatch():
+        runtime = app.extensions["mission_control_runtime"]
+        if not runtime.dispatch_ready:
+            return (
+                jsonify(
+                    {
+                        "status": "disabled",
+                        "dispatch_ready": False,
+                        "results": [],
+                    }
+                ),
+                409,
+            )
+
+        payload = request.get_json(silent=True) or {}
+        results = runtime.process_pending(limit=payload.get("limit"))
+        return jsonify(
+            {
+                "status": "ok",
+                "dispatch_ready": True,
+                "dispatched_count": len(results),
+                "results": results,
+            }
+        )
 
     @app.route("/api/dashboard", methods=["GET"])
     def dashboard():

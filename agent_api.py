@@ -139,6 +139,7 @@ class MissionControlAPI:
         target_agent: str,
         message: str,
         task_id: Optional[int] = None,
+        priority: str = "normal",
     ) -> dict:
         label_map = {
             "Jarvis-QA": "jarvis-qa",
@@ -151,18 +152,18 @@ class MissionControlAPI:
 
         label = label_map.get(target_agent, target_agent.lower())
 
-        self.send_message(
-            content=f"📤 Enviando mensaje a {target_agent}: {message[:80]}...",
-            task_id=task_id,
+        response = requests.post(
+            f"{self.base_url}/send-agent-message",
+            json={
+                "target_agent": label,
+                "message": message,
+                "task_id": task_id,
+                "from_agent": self.agent_name,
+                "priority": priority,
+            },
         )
-
-        print(f"📨 Mensaje para {target_agent} (label: {label})")
-        print(f"💬 Contenido: {message}")
-        print("\n⚠️ NOTA: Debes entregar este mensaje usando el runtime activo de agentes.")
-
-        return {
-            "target_agent": target_agent,
-            "label": label,
-            "message": message,
-            "status": "queued_via_api",
-        }
+        response.raise_for_status()
+        queued = response.json()
+        queued["label"] = label
+        print(f"📨 Mensaje para {target_agent} encolado: {queued.get('message_id')}")
+        return queued
