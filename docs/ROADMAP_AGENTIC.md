@@ -4,6 +4,17 @@
 **Estado base**: `mission_control` ya tiene Flask + Postgres operativos, pero el runtime sigue acoplado a OpenClaw/Clawbot.  
 **Objetivo macro**: convertir `mission_control` en una software factory `CrewAI-only` capaz de leer documentos de especificacion como `docs/example_input_project/requirements.md` y `docs/example_input_project/roadmap.md`, construir el plan de entrega, ejecutar el desarrollo y cerrar el ciclo SCRUM completo de forma desatendida.
 
+## Estado de ejecucion
+
+- [x] Fase 0 - Foundation Cleanup
+- [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
+- [ ] Fase 2 - Postgres Delivery Model
+- [ ] Fase 3 - CrewAI Runtime Hybrid
+- [ ] Fase 4 - Autonomous Scrum Planner
+- [ ] Fase 5 - Autonomous Delivery Loop
+- [ ] Fase 6 - GitHub + Operator UX
+- [ ] Fase 7 - Hardening & Benchmark
+
 ## Resultado esperado
 
 Al terminar este roadmap, Mission Control debe poder:
@@ -247,6 +258,15 @@ Criterios de aceptacion:
 ### Fase 2 - Postgres Delivery Model
 
 Objetivo: llevar a Postgres el modelo completo de ejecucion agentic, SCRUM y aprendizaje.
+
+Estado actual del slice en ejecucion:
+
+- [x] Persistencia de `spec_documents`, `spec_sections` y `project_blueprints`
+- [x] Persistencia de requirements, epics y tickets derivados del intake
+- [x] Endpoints API para importar, listar y consultar blueprints persistidos
+- [x] Endpoints API para `stage_feedback` y `retrospective_items`
+- [ ] Persistencia de `agent_runs`, `task_executions`, `artifacts`, `handoffs` y `llm_invocations`
+- [ ] Timeline consolidado por blueprint y reportes agregados
 
 Tickets:
 

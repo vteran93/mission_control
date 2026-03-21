@@ -244,3 +244,234 @@ class TaskQueue(db.Model):
             'error_message': self.error_message,
             'retry_count': self.retry_count
         }
+
+
+class SpecDocumentRecord(db.Model):
+    """Documento fuente ingerido para construir un blueprint"""
+    __tablename__ = 'spec_documents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_name = db.Column(db.String(200), nullable=False, index=True)
+    doc_type = db.Column(db.String(50), nullable=False, index=True)
+    path = db.Column(db.String(1000), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    metadata_json = db.Column(db.JSON, default=dict)
+    content_hash = db.Column(db.String(64), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_name': self.project_name,
+            'doc_type': self.doc_type,
+            'path': self.path,
+            'title': self.title,
+            'metadata': self.metadata_json or {},
+            'content_hash': self.content_hash,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SpecSectionRecord(db.Model):
+    """Seccion parseada de un documento fuente"""
+    __tablename__ = 'spec_sections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    spec_document_id = db.Column(db.Integer, db.ForeignKey('spec_documents.id'), nullable=False, index=True)
+    heading_level = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    order_index = db.Column(db.Integer, nullable=False)
+
+    spec_document = db.relationship('SpecDocumentRecord', backref='sections')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'spec_document_id': self.spec_document_id,
+            'heading_level': self.heading_level,
+            'title': self.title,
+            'body': self.body,
+            'order_index': self.order_index,
+        }
+
+
+class ProjectBlueprintRecord(db.Model):
+    """Blueprint persistido generado desde el intake de specs"""
+    __tablename__ = 'project_blueprints'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_name = db.Column(db.String(200), nullable=False, index=True)
+    source_requirements_document_id = db.Column(db.Integer, db.ForeignKey('spec_documents.id'), nullable=False)
+    source_roadmap_document_id = db.Column(db.Integer, db.ForeignKey('spec_documents.id'), nullable=False)
+    capabilities_json = db.Column(db.JSON, default=list)
+    acceptance_items_json = db.Column(db.JSON, default=list)
+    issues_json = db.Column(db.JSON, default=list)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    requirements_document = db.relationship(
+        'SpecDocumentRecord',
+        foreign_keys=[source_requirements_document_id],
+        backref='requirement_blueprints',
+    )
+    roadmap_document = db.relationship(
+        'SpecDocumentRecord',
+        foreign_keys=[source_roadmap_document_id],
+        backref='roadmap_blueprints',
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_name': self.project_name,
+            'source_requirements_document_id': self.source_requirements_document_id,
+            'source_roadmap_document_id': self.source_roadmap_document_id,
+            'capabilities': self.capabilities_json or [],
+            'acceptance_items': self.acceptance_items_json or [],
+            'issues': self.issues_json or [],
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class BlueprintRequirementRecord(db.Model):
+    """Requirement normalizado dentro de un blueprint"""
+    __tablename__ = 'blueprint_requirements'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    requirement_id = db.Column(db.String(50), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    source_section = db.Column(db.String(255), nullable=False)
+    category = db.Column(db.String(50), nullable=False, index=True)
+    summary = db.Column(db.Text, nullable=False)
+    constraints_json = db.Column(db.JSON, default=list)
+    acceptance_hints_json = db.Column(db.JSON, default=list)
+    order_index = db.Column(db.Integer, nullable=False)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='requirements')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'requirement_id': self.requirement_id,
+            'title': self.title,
+            'source_section': self.source_section,
+            'category': self.category,
+            'summary': self.summary,
+            'constraints': self.constraints_json or [],
+            'acceptance_hints': self.acceptance_hints_json or [],
+            'order_index': self.order_index,
+        }
+
+
+class DeliveryEpicRecord(db.Model):
+    """Epic de entrega normalizado desde el roadmap"""
+    __tablename__ = 'delivery_epics'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    epic_id = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    objective = db.Column(db.Text, default='')
+    order_index = db.Column(db.Integer, nullable=False)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='delivery_epics')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'epic_id': self.epic_id,
+            'name': self.name,
+            'objective': self.objective,
+            'order_index': self.order_index,
+        }
+
+
+class DeliveryTaskRecord(db.Model):
+    """Ticket de entrega persistido desde el roadmap"""
+    __tablename__ = 'delivery_tasks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    delivery_epic_id = db.Column(db.Integer, db.ForeignKey('delivery_epics.id'), nullable=False, index=True)
+    ticket_id = db.Column(db.String(50), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    ticket_type = db.Column(db.String(50))
+    priority = db.Column(db.String(50), index=True)
+    estimate = db.Column(db.String(50))
+    dependencies_json = db.Column(db.JSON, default=list)
+    description = db.Column(db.Text, default='')
+    acceptance_criteria_json = db.Column(db.JSON, default=list)
+    order_index = db.Column(db.Integer, nullable=False)
+
+    epic = db.relationship('DeliveryEpicRecord', backref='delivery_tasks')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'delivery_epic_id': self.delivery_epic_id,
+            'ticket_id': self.ticket_id,
+            'title': self.title,
+            'ticket_type': self.ticket_type,
+            'priority': self.priority,
+            'estimate': self.estimate,
+            'dependencies': self.dependencies_json or [],
+            'description': self.description,
+            'acceptance_criteria': self.acceptance_criteria_json or [],
+            'order_index': self.order_index,
+        }
+
+
+class StageFeedbackRecord(db.Model):
+    """Feedback producido en una etapa SCRUM del blueprint"""
+    __tablename__ = 'stage_feedback'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    stage_name = db.Column(db.String(50), nullable=False, index=True)
+    status = db.Column(db.String(50), nullable=False, default='captured')
+    source = db.Column(db.String(100), nullable=False, default='system')
+    feedback_text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='stage_feedback')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'stage_name': self.stage_name,
+            'status': self.status,
+            'source': self.source,
+            'feedback_text': self.feedback_text,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class RetrospectiveItemRecord(db.Model):
+    """Item de retrospective asociado a un blueprint"""
+    __tablename__ = 'retrospective_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    category = db.Column(db.String(50), nullable=False, index=True)
+    summary = db.Column(db.Text, nullable=False)
+    action_item = db.Column(db.Text)
+    owner = db.Column(db.String(100))
+    status = db.Column(db.String(50), nullable=False, default='open')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='retrospective_items')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'category': self.category,
+            'summary': self.summary,
+            'action_item': self.action_item,
+            'owner': self.owner,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

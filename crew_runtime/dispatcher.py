@@ -94,7 +94,7 @@ class DatabaseQueueDispatcher:
         return query.order_by(TaskQueue.created_at.desc()).limit(limit).all()
 
     def delete_entry(self, queue_entry_id: int) -> bool:
-        queue_entry = TaskQueue.query.get(queue_entry_id)
+        queue_entry = db.session.get(TaskQueue, queue_entry_id)
         if queue_entry is None:
             return False
         db.session.delete(queue_entry)

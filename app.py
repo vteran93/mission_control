@@ -10,7 +10,7 @@ from flask_cors import CORS
 from config import load_settings
 from crew_runtime import AgenticRuntime
 from database import Agent, DaemonLog, Document, Message, Notification, Sprint, Task, TaskQueue, db
-from spec_intake import SpecIntakeService
+from spec_intake import BlueprintPersistenceService, SpecIntakeService
 
 
 def ensure_runtime_directories(app: Flask) -> None:
@@ -51,12 +51,19 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.extensions["mission_control_runtime"] = runtime
     app.extensions["queue_dispatcher"] = runtime.dispatcher
     app.extensions["spec_intake_service"] = SpecIntakeService()
+    app.extensions["blueprint_persistence_service"] = BlueprintPersistenceService()
     register_routes(app)
     runtime.start_background_dispatcher(app)
     return app
 
 
 def register_routes(app: Flask) -> None:
+    def resolve_input_path(raw_path: str) -> Path:
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = Path(app.config["MISSION_CONTROL_BASE_DIR"]) / candidate
+        return candidate.resolve()
+
     @app.route("/")
     def index():
         cache_bust = int(datetime.now().timestamp())
@@ -99,12 +106,6 @@ def register_routes(app: Flask) -> None:
         if not requirements_path or not roadmap_path:
             return jsonify({"error": "requirements_path and roadmap_path are required"}), 400
 
-        def resolve_input_path(raw_path: str) -> Path:
-            candidate = Path(raw_path).expanduser()
-            if not candidate.is_absolute():
-                candidate = Path(app.config["MISSION_CONTROL_BASE_DIR"]) / candidate
-            return candidate.resolve()
-
         resolved_requirements = resolve_input_path(requirements_path)
         resolved_roadmap = resolve_input_path(roadmap_path)
 
@@ -118,6 +119,91 @@ def register_routes(app: Flask) -> None:
             roadmap_path=resolved_roadmap,
         )
         return jsonify(blueprint.to_dict())
+
+    @app.route("/api/blueprints/import", methods=["POST"])
+    def import_blueprint():
+        data = request.get_json(force=True)
+        requirements_path = data.get("requirements_path")
+        roadmap_path = data.get("roadmap_path")
+
+        if not requirements_path or not roadmap_path:
+            return jsonify({"error": "requirements_path and roadmap_path are required"}), 400
+
+        resolved_requirements = resolve_input_path(requirements_path)
+        resolved_roadmap = resolve_input_path(roadmap_path)
+
+        if not resolved_requirements.is_file():
+            return jsonify({"error": f"requirements_path not found: {resolved_requirements}"}), 404
+        if not resolved_roadmap.is_file():
+            return jsonify({"error": f"roadmap_path not found: {resolved_roadmap}"}), 404
+
+        spec_service = app.extensions["spec_intake_service"]
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint = spec_service.build_blueprint(
+            requirements_path=resolved_requirements,
+            roadmap_path=resolved_roadmap,
+        )
+        blueprint_record = persistence_service.persist_blueprint(blueprint)
+        return jsonify(persistence_service.serialize_blueprint_detail(blueprint_record)), 201
+
+    @app.route("/api/blueprints", methods=["GET"])
+    def list_blueprints():
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_records = persistence_service.list_blueprints()
+        return jsonify([blueprint.to_dict() for blueprint in blueprint_records])
+
+    @app.route("/api/blueprints/<int:blueprint_id>", methods=["GET"])
+    def blueprint_detail(blueprint_id: int):
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_record = persistence_service.get_blueprint(blueprint_id)
+        if blueprint_record is None:
+            return jsonify({"error": "Blueprint not found"}), 404
+        return jsonify(persistence_service.serialize_blueprint_detail(blueprint_record))
+
+    @app.route("/api/blueprints/<int:blueprint_id>/feedback", methods=["POST"])
+    def create_blueprint_feedback(blueprint_id: int):
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_record = persistence_service.get_blueprint(blueprint_id)
+        if blueprint_record is None:
+            return jsonify({"error": "Blueprint not found"}), 404
+
+        data = request.get_json(force=True)
+        stage_name = data.get("stage_name")
+        feedback_text = data.get("feedback_text")
+        if not stage_name or not feedback_text:
+            return jsonify({"error": "stage_name and feedback_text are required"}), 400
+
+        feedback = persistence_service.add_stage_feedback(
+            blueprint_id=blueprint_id,
+            stage_name=stage_name,
+            status=data.get("status", "captured"),
+            source=data.get("source", "system"),
+            feedback_text=feedback_text,
+        )
+        return jsonify(feedback.to_dict()), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/retrospective-items", methods=["POST"])
+    def create_retrospective_item(blueprint_id: int):
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_record = persistence_service.get_blueprint(blueprint_id)
+        if blueprint_record is None:
+            return jsonify({"error": "Blueprint not found"}), 404
+
+        data = request.get_json(force=True)
+        category = data.get("category")
+        summary = data.get("summary")
+        if not category or not summary:
+            return jsonify({"error": "category and summary are required"}), 400
+
+        item = persistence_service.add_retrospective_item(
+            blueprint_id=blueprint_id,
+            category=category,
+            summary=summary,
+            action_item=data.get("action_item"),
+            owner=data.get("owner"),
+            status=data.get("status", "open"),
+        )
+        return jsonify(item.to_dict()), 201
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):
