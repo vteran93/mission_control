@@ -43,13 +43,15 @@ Persisten rutas hardcodeadas del entorno personal:
 
 Además, la base real del proyecto está en `instance/mission_control.db`, mientras que el README anterior hablaba de `mission_control.db` en la raíz.
 
-### 4. Dependencias y testing están incompletos
+### 4. Dependencias y testing estaban incompletos
 
-- `requirements.txt` no declara `requests`, aunque varios scripts y `agent_api.py` la importan.
-- `tests/` está vacío.
-- `python3 -m pytest -q` falla porque `pytest` no está instalado en el entorno actual y tampoco está declarado en dependencias.
+Este hallazgo era correcto al momento del review inicial, pero Fase 1 ya corrigió una parte importante:
 
-Impacto: el proyecto no tiene una base mínima de validación automatizada ni un entorno reproducible completo.
+- `requirements.txt` ya declara `requests`, `alembic` y `psycopg[binary]`.
+- `requirements-dev.txt` ya declara `pytest` y `pytest-cov`.
+- `tests/` ya incluye cobertura mínima para Fase 0 y Fase 1.
+
+Lo que sigue pendiente no es tener "cero tests", sino ampliar cobertura sobre contratos API, runtime y migraciones futuras.
 
 ### 5. Hay inconsistencias funcionales secundarias
 
@@ -135,3 +137,106 @@ Reemplazar por CrewAI:
 - `requirements.txt`
 
 En resumen: el dashboard es reutilizable, pero la capa de ejecución todavía está diseñada alrededor de Clawbot/OpenClaw. Si el objetivo es dejarlo en CrewAI solamente, la documentación ya quedó alineada con esa realidad; el siguiente paso es reemplazar la orquestación, no solo renombrarla.
+
+## Proceso de prueba local
+
+Este es el flujo local validado para la Fase 1 con Postgres en Docker Compose.
+
+### 1. Preparar entorno Python
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+### 2. Levantar servicios locales
+
+```bash
+docker-compose up -d --build
+```
+
+Servicios esperados:
+
+- App Flask: `http://localhost:5001`
+- API health: `http://localhost:5001/api/health`
+- Postgres: `localhost:54325`
+
+### 3. Verificar healthcheck
+
+```bash
+curl -fsS http://localhost:5001/api/health
+```
+
+Respuesta esperada:
+
+```json
+{
+  "agent_wakeups_enabled": false,
+  "database": {
+    "scheme": "postgresql+psycopg"
+  },
+  "service": "mission-control",
+  "status": "ok"
+}
+```
+
+### 4. Ejecutar tests automatizados
+
+```bash
+.venv/bin/python -m pytest tests -q
+```
+
+Resultado validado en esta fase:
+
+- `11 passed, 1 warning`
+
+Nota: el warning actual viene de defaults heredados con `datetime.utcnow()` en el modelo legacy.
+
+### 5. Migrar datos legacy desde SQLite a Postgres
+
+Si quieres cargar el contenido de `instance/mission_control.db` en la base Postgres principal local:
+
+```bash
+docker-compose stop app
+docker-compose exec -T postgres psql -U mission_control -d postgres \
+  -c "DROP DATABASE IF EXISTS mission_control;" \
+  -c "CREATE DATABASE mission_control;"
+.venv/bin/python -c "from db_bootstrap import run_migrations; run_migrations(database_url='postgresql+psycopg://mission_control:mission_control@localhost:54325/mission_control', alembic_ini_path='alembic.ini')"
+.venv/bin/python scripts/migrate_sqlite_to_postgres.py \
+  --source-sqlite instance/mission_control.db \
+  --target-url postgresql+psycopg://mission_control:mission_control@localhost:54325/mission_control
+docker-compose start app
+```
+
+### 6. Validar datos migrados
+
+```bash
+docker-compose exec -T postgres psql -U mission_control -d mission_control -c "
+select 'agents' as table_name, count(*) from agents
+union all select 'projects', count(*) from projects
+union all select 'sprints', count(*) from sprints
+union all select 'tasks', count(*) from tasks
+union all select 'documents', count(*) from documents
+union all select 'messages', count(*) from messages
+union all select 'notifications', count(*) from notifications
+union all select 'task_queue', count(*) from task_queue
+union all select 'daemon_logs', count(*) from daemon_logs
+order by table_name;"
+```
+
+Conteos validados durante esta fase:
+
+- `agents=3`
+- `projects=2`
+- `sprints=3`
+- `tasks=40`
+- `documents=0`
+- `messages=391`
+- `notifications=0`
+- `task_queue=62`
+- `daemon_logs=456`
+
+Dato importante:
+
+- La migración normaliza a `NULL` referencias legacy inválidas en columnas nullable como `messages.task_id`, en vez de romper integridad referencial en Postgres.
