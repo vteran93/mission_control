@@ -9,7 +9,7 @@
 - [x] Fase 0 - Foundation Cleanup
 - [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
 - [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
-- [ ] Fase 3 - CrewAI Runtime Hybrid
+- [ ] Fase 3 - CrewAI Runtime Hybrid (runtime operativo validado; escalamiento real a Bedrock sigue pendiente)
 - [ ] Fase 4 - Autonomous Scrum Planner
 - [ ] Fase 5 - Autonomous Delivery Loop
 - [ ] Fase 6 - GitHub + Operator UX
@@ -304,21 +304,48 @@ Conclusion de validacion:
 
 Objetivo: materializar el runtime de crews, tools y model routing local/cloud.
 
+Estado actual de la fase:
+
+- [x] `CrewAIExecutor` operativo con `Process.hierarchical`
+- [x] `ModelRegistry` con perfiles `worker_local`, `planner_bedrock` y `reviewer_bedrock`
+- [x] Endpoint de runtime para health, dispatch dirigido, recovery de cola y consulta de perfiles
+- [x] Smoke real validado con `CrewAI + Ollama qwen2.5-coder:latest`
+- [x] Politica base de timeout, `retry_count`, fallback y recovery de `processing` abandonado
+- [x] Tools API-first consumibles desde crews
+- [x] Tools de workspace, incluyendo creacion de codigo, Unix, mypy y contexto multi-stack (`npm`, `NuGet/dotnet`, `pip`, `cargo`, `go`)
+- [x] Seeds completos de `Intake`, `Planning`, `Delivery`, `Review` y `Retro`
+- [x] Telemetria persistida en tablas canonicas de delivery tracking para dispatches enlazados a blueprint/task
+
 Tickets:
 
-- `AG-301` Implementar `CrewRuntime` con `Process.hierarchical`.
-- `AG-302` Crear `ModelRegistry` con perfiles configurables para Ollama y Bedrock.
-- `AG-303` Crear tools API-first para Mission Control: backlog, context, status, artifacts, handoffs, feedback.
-- `AG-304` Crear tools de workspace: git, shell, tests, formatter, coverage, docs.
-- `AG-305` Crear seeds de crews: `Intake`, `Planning`, `Delivery`, `Review`, `Retro`.
-- `AG-306` Implementar politicas de escalamiento de Ollama hacia Bedrock.
-- `AG-307` Persistir telemetria de runs, retries, timeouts y fallbacks por provider.
+- `AG-301` Cumplido. `CrewRuntime` ya ejecuta dispatch con `CrewAI` y `Process.hierarchical`.
+- `AG-302` Cumplido. Existe `ModelRegistry` configurable para Ollama y Bedrock, expuesto por API.
+- `AG-303` Cumplido. Existen tools API-first para blueprints, task context, execution report, feedback y artifacts/handoffs consumibles desde crews.
+- `AG-304` Cumplido. Existen tools de workspace para lectura/escritura de codigo, Unix, mypy, tests y contexto operativo multi-stack.
+- `AG-305` Cumplido. Existen seeds funcionales de `Intake`, `Planning`, `Delivery`, `Review` y `Retro`.
+- `AG-306` Cumplido. Existe politica de fallback/escalamiento por `retry_count` con handoff persistido entre perfiles de modelo.
+- `AG-307` Cumplido. Se persisten `agent_runs`, `task_executions`, `llm_invocations` y `handoffs` desde el runtime cuando el dispatch llega con blueprint/task asociados.
 
 Criterios de aceptacion:
 
-- Un crew puede arrancar desde Mission Control usando solo CrewAI y providers configurados.
-- El worker local por defecto usa Ollama.
-- Un bloqueo real puede escalar automaticamente a un rol Bedrock y volver con decision persistida.
+- [x] Un crew puede arrancar desde Mission Control usando solo CrewAI y providers configurados.
+- [x] El worker local por defecto usa Ollama.
+- [ ] Un bloqueo real puede escalar automaticamente a un rol Bedrock y volver con decision persistida.
+
+Resultado de validacion 2026-03-22:
+
+- `./.venv/bin/python -m pytest tests -q` paso con `39 passed`.
+- El entorno local quedo alineado a `Python 3.12.13` con bootstrap reproducible via `scripts/bootstrap_local_env.sh`.
+- `scripts/smoke_local.sh` paso con `dispatch_ready=true`, `dispatcher_executor=crewai` y `tool_count=12`.
+- `scripts/smoke_docker.sh` paso con `mission-control-app` y `mission-control-postgres` en `healthy`, mas `GET /api/health` y `GET /api/runtime/health` correctos.
+- El smoke agentic local sobre `The Barber Group` paso: `requirements.md` + `roadmap.md` produjeron `33` requirements, `5` epics, `20` tickets y `0` issues.
+- Ese smoke agentic completo un dispatch `crew_seed=intake` con `Ollama qwen2.5-coder:latest`, dejo la entrada de cola en `completed` y persistio `agent_runs=1`, `task_executions=1` y `llm_invocations=1`.
+
+Conclusion de validacion:
+
+- La base de Fase 3 queda validada en host local, Docker Compose y flujo agentic real con specs externas.
+- Mission Control ya puede ingerir un proyecto real de backend Python y ejecutar intake con telemetria canonica persistida.
+- El trabajo restante de la fase se concentra en escalamiento Bedrock real y cierre del criterio de desbloqueo senior.
 
 ### Fase 4 - Autonomous Scrum Planner
 

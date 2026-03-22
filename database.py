@@ -210,9 +210,12 @@ class TaskQueue(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     target_agent = db.Column(db.String(50), nullable=False, index=True)  # 'jarvis-dev', 'jarvis-qa', etc.
     message_id = db.Column(db.Integer, db.ForeignKey('messages.id'), nullable=False, index=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=True, index=True)
+    delivery_task_id = db.Column(db.Integer, db.ForeignKey('delivery_tasks.id'), nullable=True, index=True)
     from_agent = db.Column(db.String(50), nullable=False)
     content = db.Column(db.Text, nullable=False)
     priority = db.Column(db.String(20), default='normal')  # 'urgent', 'high', 'normal', 'low'
+    crew_seed = db.Column(db.String(50), nullable=True, index=True)
     status = db.Column(db.String(20), default='pending', index=True)  # 'pending', 'processing', 'completed', 'failed'
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -223,18 +226,24 @@ class TaskQueue(db.Model):
     clawdbot_session_key = db.Column(db.Text)
     error_message = db.Column(db.Text)
     retry_count = db.Column(db.Integer, default=0)
+    runtime_metadata_json = db.Column(db.JSON, default=dict)
     
     # Relationship
     message = db.relationship('Message', backref='queued_tasks')
+    project_blueprint = db.relationship('ProjectBlueprintRecord', backref='queued_tasks')
+    delivery_task = db.relationship('DeliveryTaskRecord', backref='queued_tasks')
     
     def to_dict(self):
         return {
             'id': self.id,
             'target_agent': self.target_agent,
             'message_id': self.message_id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'delivery_task_id': self.delivery_task_id,
             'from_agent': self.from_agent,
             'content': self.content[:200] + '...' if len(self.content) > 200 else self.content,
             'priority': self.priority,
+            'crew_seed': self.crew_seed,
             'status': self.status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'started_at': self.started_at.isoformat() if self.started_at else None,
@@ -242,7 +251,8 @@ class TaskQueue(db.Model):
             'runtime_session_key': self.clawdbot_session_key,
             'clawdbot_session_key': self.clawdbot_session_key,
             'error_message': self.error_message,
-            'retry_count': self.retry_count
+            'retry_count': self.retry_count,
+            'runtime_metadata': self.runtime_metadata_json or {},
         }
 
 

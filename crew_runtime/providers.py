@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 
 import requests
 
@@ -13,7 +14,10 @@ class CrewAIProvider:
     name = "crewai"
 
     def healthcheck(self) -> ProviderHealth:
-        available = importlib.util.find_spec("crewai") is not None
+        try:
+            available = importlib.util.find_spec("crewai") is not None
+        except ValueError:
+            available = "crewai" in sys.modules
         detail = "CrewAI import disponible" if available else "CrewAI no esta instalado en el entorno"
         return ProviderHealth(
             name=self.name,

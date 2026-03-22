@@ -69,15 +69,11 @@ La parte útil y rescatable del repo es esta:
 
 ## Quick Start realista
 
-Si solo quieres levantar el dashboard/API localmente, hoy lo más seguro es esto:
+Si quieres levantar el dashboard/API localmente sin pelear con versiones de Python, el flujo validado ahora es este:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install requests
-python3 init_db.py
-PORT=5001 python3 app.py
+bash scripts/bootstrap_local_env.sh
+PORT=5001 bash ./start_mission_control.sh
 ```
 
 Abrir:
@@ -89,7 +85,15 @@ Base de datos usada por Flask:
 
 - `instance/mission_control.db`
 
-Nota: levantar la UI no significa que la orquestación de agentes funcione. Las rutas de wake-up, spawner y mensajería automática siguen dependiendo de Clawbot/OpenClaw.
+Puntos operativos:
+
+- El repo fija Python local en `3.12` vía `.python-version` para evitar el choque con `crewai` en Python `3.14`.
+- Si existe una `.venv` con otra versión, `scripts/bootstrap_local_env.sh` la mueve a un backup temporal y recrea la venv correcta.
+- `start_mission_control.sh` ya auto-bootstrappea la `.venv` local si falta o si quedó en una versión incompatible.
+- El arranque local usa `MISSION_CONTROL_INSTANCE_PATH=.instance-local` y `MISSION_CONTROL_RUNTIME_DIR=.runtime-local` por defecto para no chocar con la SQLite legacy ni con permisos/estado del `runtime/` que usa Docker.
+- El host local arranca con `MISSION_CONTROL_DISPATCHER_EXECUTOR=crewai` por defecto para que el runtime quede en la misma modalidad agentic del contenedor.
+
+Nota: levantar la UI no significa que toda la orquestación quede lista. El runtime híbrido ya corre por DB + CrewAI, pero las integraciones externas siguen dependiendo de configuración explícita de providers.
 
 ## Qué hay que reemplazar para volverlo CrewAI-only
 
@@ -142,18 +146,58 @@ En resumen: el dashboard es reutilizable, pero la capa de ejecución todavía es
 
 Este es el flujo local validado para la Fase 1 con Postgres en Docker Compose.
 
-### 1. Preparar entorno Python
+### 1. Preparar entorno Python local
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
+bash scripts/bootstrap_local_env.sh
+./.venv/bin/python --version
 ```
 
-### 2. Levantar servicios locales
+Resultado esperado:
+
+- `Python 3.12.x`
+
+Atajo equivalente:
 
 ```bash
-docker-compose up -d --build
+make bootstrap-local
+```
+
+### 2. Ejecutar suite local
+
+```bash
+./.venv/bin/python -m pytest tests -q
+```
+
+Atajo equivalente:
+
+```bash
+make test
+```
+
+### 3. Smoke local del backend
+
+```bash
+bash scripts/smoke_local.sh
+```
+
+Valida:
+
+- arranque de `app.py` con la `.venv` local
+- `GET /api/health`
+- `GET /api/runtime/health`
+- `GET /api/runtime/tools`
+
+Atajo equivalente:
+
+```bash
+make smoke-local
+```
+
+### 4. Levantar servicios en Docker Compose
+
+```bash
+docker compose up -d --build
 ```
 
 Servicios esperados:
@@ -162,7 +206,27 @@ Servicios esperados:
 - API health: `http://localhost:5001/api/health`
 - Postgres: `localhost:54325`
 
-### 3. Verificar healthcheck
+### 5. Smoke docker-compose
+
+```bash
+bash scripts/smoke_docker.sh
+```
+
+Valida:
+
+- `docker compose up -d --build app`
+- `docker compose ps -a`
+- `GET /api/health`
+- `GET /api/runtime/health`
+- `GET /api/runtime/crew-seeds`
+
+Atajo equivalente:
+
+```bash
+make smoke-docker
+```
+
+### 6. Verificar healthcheck manual si hace falta
 
 ```bash
 curl -fsS http://localhost:5001/api/health
@@ -181,38 +245,32 @@ Respuesta esperada:
 }
 ```
 
-### 4. Ejecutar tests automatizados
+Resultado validado en el estado actual del repo:
 
-```bash
-.venv/bin/python -m pytest tests -q
-```
-
-Resultado validado en esta fase:
-
-- `11 passed, 1 warning`
+- `38 passed`
 
 Nota: el warning actual viene de defaults heredados con `datetime.utcnow()` en el modelo legacy.
 
-### 5. Migrar datos legacy desde SQLite a Postgres
+### 7. Migrar datos legacy desde SQLite a Postgres
 
 Si quieres cargar el contenido de `instance/mission_control.db` en la base Postgres principal local:
 
 ```bash
-docker-compose stop app
-docker-compose exec -T postgres psql -U mission_control -d postgres \
+docker compose stop app
+docker compose exec -T postgres psql -U mission_control -d postgres \
   -c "DROP DATABASE IF EXISTS mission_control;" \
   -c "CREATE DATABASE mission_control;"
 .venv/bin/python -c "from db_bootstrap import run_migrations; run_migrations(database_url='postgresql+psycopg://mission_control:mission_control@localhost:54325/mission_control', alembic_ini_path='alembic.ini')"
 .venv/bin/python scripts/migrate_sqlite_to_postgres.py \
   --source-sqlite instance/mission_control.db \
   --target-url postgresql+psycopg://mission_control:mission_control@localhost:54325/mission_control
-docker-compose start app
+docker compose start app
 ```
 
-### 6. Validar datos migrados
+### 8. Validar datos migrados
 
 ```bash
-docker-compose exec -T postgres psql -U mission_control -d mission_control -c "
+docker compose exec -T postgres psql -U mission_control -d mission_control -c "
 select 'agents' as table_name, count(*) from agents
 union all select 'projects', count(*) from projects
 union all select 'sprints', count(*) from sprints
