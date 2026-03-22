@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mission-control-postgres
+    ports:
+      - "54325:5432"
+    environment:
+      POSTGRES_USER: mission_control
+      POSTGRES_PASSWORD: mission_control
+      POSTGRES_DB: mission_control
+    volumes:
+      - mission_control_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mission_control -d mission_control"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mission-control-app
+    ports:
+      - "5001:5001"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5001
+      FLASK_DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg://mission_control:mission_control@postgres:5432/mission_control
+      ENABLE_AGENT_WAKEUPS: "false"
+      MISSION_CONTROL_RUNTIME_ENABLED: "true"
+      MISSION_CONTROL_DISPATCHER_AUTOSTART: "false"
+      MISSION_CONTROL_DISPATCHER_EXECUTOR: "disabled"
+      MISSION_CONTROL_ENABLE_LEGACY_BRIDGE: "false"
+      MISSION_CONTROL_API_URL: http://localhost:5001/api
+      ALEMBIC_INI_PATH: /app/alembic.ini
+      MISSION_CONTROL_INSTANCE_PATH: /app/instance
+      MISSION_CONTROL_RUNTIME_DIR: /app/runtime
+      MISSION_CONTROL_QUEUE_DIR: /app/runtime/message_queue
+      MISSION_CONTROL_HEARTBEAT_LOCK_DIR: /app/runtime/locks
+      MISSION_CONTROL_HEARTBEAT_SCRIPT_DIR: /app/scripts
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_DEFAULT_MODEL: qwen2.5-coder:latest
+      GITHUB_API_URL: https://api.github.com
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app
+      - mission_control_instance:/app/instance
+      - mission_control_runtime:/app/runtime
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mission_control_postgres_data:
+  mission_control_instance:
+  mission_control_runtime:

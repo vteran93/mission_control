@@ -7,6 +7,8 @@ set -e
 REPO_DIR="$HOME/repositories/mission_control"
 LOG_DIR="$REPO_DIR/logs"
 PID_FILE="$REPO_DIR/mission_control.pid"
+PORT="${PORT:-5001}"
+PYTHON_BIN="${PYTHON_BIN:-$REPO_DIR/.venv/bin/python}"
 
 # Crear directorio de logs si no existe
 mkdir -p "$LOG_DIR"
@@ -27,14 +29,20 @@ fi
 cd "$REPO_DIR"
 
 # Verificar dependencias
-if ! pip3 list | grep -q Flask; then
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "❌ No se encontró Python virtualenv en $PYTHON_BIN"
+    echo "Crea la venv o exporta PYTHON_BIN antes de ejecutar."
+    exit 1
+fi
+
+if ! "$PYTHON_BIN" -m pip list | grep -q Flask; then
     echo "📦 Instalando dependencias..."
-    pip3 install -r requirements.txt
+    "$PYTHON_BIN" -m pip install -r requirements-dev.txt
 fi
 
 # Iniciar servidor en background
 echo "🚀 Iniciando Mission Control..."
-nohup python3 app.py > "$LOG_DIR/mission_control.log" 2>&1 &
+nohup env PORT="$PORT" "$PYTHON_BIN" app.py > "$LOG_DIR/mission_control.log" 2>&1 &
 PID=$!
 
 # Guardar PID
@@ -45,10 +53,10 @@ sleep 2
 
 # Verificar que levantó correctamente
 if ps -p "$PID" > /dev/null; then
-    if curl -s http://localhost:5001/api/tasks > /dev/null 2>&1; then
+    if curl -s "http://localhost:${PORT}/api/health" > /dev/null 2>&1; then
         echo "✅ Mission Control ONLINE (PID: $PID)"
-        echo "📊 Dashboard: http://localhost:5001"
-        echo "🔧 API: http://localhost:5001/api/tasks"
+        echo "📊 Dashboard: http://localhost:${PORT}"
+        echo "🔧 API: http://localhost:${PORT}/api/tasks"
         echo "📋 Logs: tail -f $LOG_DIR/mission_control.log"
     else
         echo "⚠️  Proceso corriendo pero API no responde"

@@ -1,213 +1,242 @@
-# Mission Control - Scrum Dashboard para BlackForge MVP
+# Mission Control
 
-Dashboard web para coordinar agentes (Jarvis-Dev, Jarvis-QA) en el desarrollo de BlackForge.
+Panel Flask para coordinar tareas, mensajes y estado de agentes.
 
-## 🚀 Quick Start
+## Estado actual
+
+Este repositorio **no está listo como CrewAI-only**. El review muestra que la UI y la API base sí existen, pero la orquestación de agentes sigue fuertemente acoplada a `openclaw` / `clawbot`.
+
+Fecha del review: `2026-03-20`
+
+## Hallazgos del review
+
+### 1. La ejecución de agentes sigue dependiendo de Clawbot/OpenClaw
+
+El acoplamiento no es superficial ni solo de documentación:
+
+- `app.py` dispara heartbeats usando rutas locales de Clawbot en `/home/victor/clawd/...` y scripts en `/home/victor/.local/bin/...`.
+- `app.py` escribe mensajes a `~/clawd/mission_control_queue` para que Clawbot los procese.
+- `daemon/spawner.py` usa `sessions_spawn` vía gateway HTTP y requiere `CLAWDBOT_GATEWAY_TOKEN`.
+- `scripts/spawn_agents.py` llama directamente a `clawdbot sessions spawn`.
+- `openclaw_orchestrator/` sigue siendo un subsistema específico de OpenClaw.
+
+Conclusión: hoy el repo es un dashboard Flask con una capa de orquestación todavía dependiente de OpenClaw/Clawbot.
+
+### 2. Hay una inconsistencia operativa de puerto
+
+El backend arranca en `5000` por defecto, pero el frontend, `agent_api.py`, `start_mission_control.sh` y la documentación apuntan a `5001`.
+
+- `app.py` usa `PORT=5000` por defecto.
+- `static/script.js` consume `http://localhost:5001/api`.
+- `agent_api.py` usa `http://localhost:5001/api`.
+- `start_mission_control.sh` valida `http://localhost:5001/api/tasks`.
+
+Impacto: un arranque “tal cual” puede dejar la UI y los clientes apuntando al puerto incorrecto.
+
+### 3. El repo no es portable ni self-contained
+
+Persisten rutas hardcodeadas del entorno personal:
+
+- `/home/victor/clawd/...`
+- `/home/victor/.local/bin/...`
+- `~/clawd/mission_control_queue`
+
+Además, la base real del proyecto está en `instance/mission_control.db`, mientras que el README anterior hablaba de `mission_control.db` en la raíz.
+
+### 4. Dependencias y testing estaban incompletos
+
+Este hallazgo era correcto al momento del review inicial, pero Fase 1 ya corrigió una parte importante:
+
+- `requirements.txt` ya declara `requests`, `alembic` y `psycopg[binary]`.
+- `requirements-dev.txt` ya declara `pytest` y `pytest-cov`.
+- `tests/` ya incluye cobertura mínima para Fase 0 y Fase 1.
+
+Lo que sigue pendiente no es tener "cero tests", sino ampliar cobertura sobre contratos API, runtime y migraciones futuras.
+
+### 5. Hay inconsistencias funcionales secundarias
+
+- La UI permite seleccionar `TODOS`, pero el backend no expande ese valor: termina encolando el literal `all` como si fuera un agente válido.
+- `MissionControlAPI` asigna rol `qa` a cualquier agente cuyo nombre no contenga `Dev`, por lo que actores como `Victor` o `Jarvis-PM` quedan mal clasificados al auto-crearse.
+
+## Qué sí sirve hoy
+
+La parte útil y rescatable del repo es esta:
+
+- Dashboard Flask para visualizar agentes, tareas, mensajes, documentos y notificaciones.
+- API REST básica para CRUD de agentes, tareas, mensajes, documentos, notificaciones y cola.
+- Persistencia SQLite con modelos en `database.py`.
+- Endpoints para logs de daemons y resumen del dashboard.
+
+## Quick Start realista
+
+Si solo quieres levantar el dashboard/API localmente, hoy lo más seguro es esto:
 
 ```bash
-# 1. Instalar dependencias
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# 2. Inicializar base de datos
+pip install requests
 python3 init_db.py
-
-# 3. Arrancar servidor
-python3 app.py
+PORT=5001 python3 app.py
 ```
 
-Abre: **http://localhost:5001**
+Abrir:
 
----
+- Dashboard: `http://localhost:5001`
+- API: `http://localhost:5001/api/agents`
 
-## 📡 Agent API
+Base de datos usada por Flask:
 
-Los agentes usan `agent_api.py` para interactuar con Mission Control.
+- `instance/mission_control.db`
 
-### Ejemplo Básico
+Nota: levantar la UI no significa que la orquestación de agentes funcione. Las rutas de wake-up, spawner y mensajería automática siguen dependiendo de Clawbot/OpenClaw.
 
-```python
-from agent_api import MissionControlAPI
+## Qué hay que reemplazar para volverlo CrewAI-only
 
-# Inicializar agente
-jarvis = MissionControlAPI("Jarvis-Dev")
+Estas piezas deberían salir o ser reescritas:
 
-# Actualizar estado
-jarvis.update_status("working")
+- `openclaw_orchestrator/`
+- `daemon/spawner.py`
+- `scripts/spawn_agents.py`
+- El flujo de `/api/send-agent-message` que escribe en `~/clawd/mission_control_queue`
+- La lógica `trigger_agent_wake()` en `app.py`
+- Scripts `jarvis-*-direct.py`, `jarvis-*-notify.py`, `jarvis-*-gateway.py` si siguen usando `clawdbot`
 
-# Crear tarea
-task_id = jarvis.create_task(
-    title="TICKET-001: Pydantic Models",
-    description="Implementar schemas con TDD",
-    priority="critical",
-    status="in_progress"
-)
+## Dirección recomendada
 
-# Enviar mensaje
-jarvis.send_message(
-    content="🟢 GREEN: 39 tests passing, 99% coverage",
-    task_id=task_id
-)
+Mantener:
 
-# Crear documento
-jarvis.create_document(
-    title="test_models.py",
-    content_md="```python\n# tests\n```",
-    doc_type="test",
-    task_id=task_id
-)
+- `app.py`
+- `database.py`
+- `agent_api.py` como contrato de integración, pero limpiándolo
+- `templates/` y `static/`
 
-# Actualizar tarea
-jarvis.update_task(task_id, status="done")
+Reemplazar por CrewAI:
 
-# Notificar Scrum Master
-jarvis.notify_scrum_master("✅ TICKET-001 completado")
+- Un runner interno que ejecute crews/tareas sin `sessions_spawn`
+- Una cola basada solo en DB
+- Configuración por variables de entorno, sin rutas hardcodeadas
+- Roles PM/Dev/QA modelados como crews o workers propios
 
-# Enviar mensaje a otro agente
-jarvis.send_message_to_agent(
-    target_agent="Jarvis-QA",
-    message="🔔 TICKET-002 listo para review",
-    task_id=task_id
-)
+## Siguiente refactor recomendado
 
-# Cambiar estado
-jarvis.update_status("idle")
-```
+1. Unificar configuración en env vars: `PORT`, `MISSION_CONTROL_DB_PATH`, `MISSION_CONTROL_QUEUE_DIR`.
+2. Separar claramente “dashboard/API” de “runtime de agentes”.
+3. Sustituir la cola filesystem + gateway Clawbot por un dispatcher CrewAI.
+4. Eliminar `openclaw_orchestrator/` y scripts `clawdbot` una vez exista el runner CrewAI.
+5. Agregar smoke tests para API, cola y creación de agentes.
 
----
+## Referencias del review
 
-## 💬 Mensajes Entre Agentes
+- `app.py`
+- `agent_api.py`
+- `daemon/spawner.py`
+- `scripts/spawn_agents.py`
+- `static/script.js`
+- `templates/index.html`
+- `requirements.txt`
 
-### Opción 1: Desde Python (API)
+En resumen: el dashboard es reutilizable, pero la capa de ejecución todavía está diseñada alrededor de Clawbot/OpenClaw. Si el objetivo es dejarlo en CrewAI solamente, la documentación ya quedó alineada con esa realidad; el siguiente paso es reemplazar la orquestación, no solo renombrarla.
 
-```python
-from agent_api import MissionControlAPI
+## Proceso de prueba local
 
-api = MissionControlAPI('Victor')
-api.send_message_to_agent(
-    target_agent='Jarvis-QA',
-    message='Revisa TICKET-002 por favor'
-)
-```
+Este es el flujo local validado para la Fase 1 con Postgres en Docker Compose.
 
-Esto te dará el comando `sessions_send` que debes copiar en Clawdbot.
-
-### Opción 2: Script Helper (Terminal)
+### 1. Preparar entorno Python
 
 ```bash
-cd /home/victor/repositories/mission_control
-
-# Enviar mensaje a Jarvis-QA
-python3 send_agent_message.py \
-  --to Jarvis-QA \
-  --message "Revisa TICKET-002 por favor"
-
-# Con tarea asociada
-python3 send_agent_message.py \
-  --to Jarvis-Dev \
-  --message "Excelente trabajo!" \
-  --task 2
-
-# Ayuda
-python3 send_agent_message.py --help
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
 ```
 
-El script te dará el comando `sessions_send` listo para copiar en Clawdbot.
+### 2. Levantar servicios locales
 
-### Opción 3: Directo desde Clawdbot
-
-Si ya conoces el label del agente:
-
-```
-sessions_send(label='jarvis-qa', message='Tu mensaje aquí')
-```
-
-**Labels disponibles:**
-- `jarvis-dev` → Jarvis-Dev
-- `jarvis-qa` → Jarvis-QA
-
----
-
-## 📊 API Endpoints
-
-### Agents
-- `GET /api/agents` - Listar agentes
-- `POST /api/agents` - Crear agente
-- `PUT /api/agents/:id` - Actualizar agente
-
-### Tasks
-- `GET /api/tasks` - Listar tareas
-- `POST /api/tasks` - Crear tarea
-- `PUT /api/tasks/:id` - Actualizar tarea
-- `DELETE /api/tasks/:id` - Eliminar tarea
-
-### Messages
-- `GET /api/messages` - Listar mensajes
-- `POST /api/messages` - Enviar mensaje
-
-### Documents
-- `GET /api/documents` - Listar documentos
-- `POST /api/documents` - Crear documento
-
-### Notifications
-- `GET /api/notifications` - Listar notificaciones
-- `POST /api/notifications` - Crear notificación
-
----
-
-## 🗂️ Estructura
-
-```
-mission_control/
-├── app.py                    # Flask app
-├── agent_api.py              # Python client para agentes
-├── send_agent_message.py     # Helper CLI para mensajes
-├── init_db.py                # Database setup
-├── requirements.txt
-├── static/                   # CSS/JS
-├── templates/                # HTML templates
-└── mission_control.db        # SQLite database
-```
-
----
-
-## 🎯 Workflow Típico
-
-1. **Jarvis-Dev** crea ticket y empieza trabajo
-2. **Jarvis-Dev** envía updates vía `send_message()`
-3. **Jarvis-Dev** cambia status a "review" y notifica **Jarvis-QA**
-4. **Jarvis-QA** recibe mensaje, ejecuta tests, reporta findings
-5. **Jarvis-Dev** corrige issues, notifica re-review
-6. **Jarvis-QA** aprueba, **Jarvis-Dev** mergea y cierra ticket
-7. **Scrum Master (Victor)** monitorea dashboard en tiempo real
-
----
-
-## 🐛 Troubleshooting
-
-**Dashboard no carga:**
 ```bash
-# Verificar que el servidor esté corriendo
-curl http://localhost:5001/api/agents
-
-# Ver logs
-tail -f app.log  # (si configuraste logging)
+docker-compose up -d --build
 ```
 
-**Base de datos corrupta:**
+Servicios esperados:
+
+- App Flask: `http://localhost:5001`
+- API health: `http://localhost:5001/api/health`
+- Postgres: `localhost:54325`
+
+### 3. Verificar healthcheck
+
 ```bash
-rm mission_control.db
-python3 init_db.py
+curl -fsS http://localhost:5001/api/health
 ```
 
-**Agente no aparece en dashboard:**
-```python
-# Verificar que se creó correctamente
-from agent_api import MissionControlAPI
-api = MissionControlAPI("Jarvis-Dev")
-print(f"Agent ID: {api.agent_id}")
+Respuesta esperada:
+
+```json
+{
+  "agent_wakeups_enabled": false,
+  "database": {
+    "scheme": "postgresql+psycopg"
+  },
+  "service": "mission-control",
+  "status": "ok"
+}
 ```
 
----
+### 4. Ejecutar tests automatizados
 
-**Estado:** ✅ v0.1.0 - Funcional  
-**Próximo:** Integración con Clawdbot cron jobs
+```bash
+.venv/bin/python -m pytest tests -q
+```
+
+Resultado validado en esta fase:
+
+- `11 passed, 1 warning`
+
+Nota: el warning actual viene de defaults heredados con `datetime.utcnow()` en el modelo legacy.
+
+### 5. Migrar datos legacy desde SQLite a Postgres
+
+Si quieres cargar el contenido de `instance/mission_control.db` en la base Postgres principal local:
+
+```bash
+docker-compose stop app
+docker-compose exec -T postgres psql -U mission_control -d postgres \
+  -c "DROP DATABASE IF EXISTS mission_control;" \
+  -c "CREATE DATABASE mission_control;"
+.venv/bin/python -c "from db_bootstrap import run_migrations; run_migrations(database_url='postgresql+psycopg://mission_control:mission_control@localhost:54325/mission_control', alembic_ini_path='alembic.ini')"
+.venv/bin/python scripts/migrate_sqlite_to_postgres.py \
+  --source-sqlite instance/mission_control.db \
+  --target-url postgresql+psycopg://mission_control:mission_control@localhost:54325/mission_control
+docker-compose start app
+```
+
+### 6. Validar datos migrados
+
+```bash
+docker-compose exec -T postgres psql -U mission_control -d mission_control -c "
+select 'agents' as table_name, count(*) from agents
+union all select 'projects', count(*) from projects
+union all select 'sprints', count(*) from sprints
+union all select 'tasks', count(*) from tasks
+union all select 'documents', count(*) from documents
+union all select 'messages', count(*) from messages
+union all select 'notifications', count(*) from notifications
+union all select 'task_queue', count(*) from task_queue
+union all select 'daemon_logs', count(*) from daemon_logs
+order by table_name;"
+```
+
+Conteos validados durante esta fase:
+
+- `agents=3`
+- `projects=2`
+- `sprints=3`
+- `tasks=40`
+- `documents=0`
+- `messages=391`
+- `notifications=0`
+- `task_queue=62`
+- `daemon_logs=456`
+
+Dato importante:
+
+- La migración normaliza a `NULL` referencias legacy inválidas en columnas nullable como `messages.task_id`, en vez de romper integridad referencial en Postgres.

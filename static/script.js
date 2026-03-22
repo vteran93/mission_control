@@ -1,6 +1,6 @@
 // script.js - Mission Control Frontend Logic (Enhanced with Drag & Drop + Task Modal + Sprint Filter)
 console.log('🚀 Mission Control JS loaded at:', new Date().toISOString());
-const API_BASE = 'http://localhost:5001/api';
+const API_BASE = '/api';
 let refreshInterval;
 let countdown = 5;
 let currentTaskId = null; // For modal
