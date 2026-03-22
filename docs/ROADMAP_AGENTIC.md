@@ -9,7 +9,7 @@
 - [x] Fase 0 - Foundation Cleanup
 - [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
 - [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
-- [ ] Fase 3 - CrewAI Runtime Hybrid
+- [ ] Fase 3 - CrewAI Runtime Hybrid (runtime operativo validado; escalamiento real a Bedrock sigue pendiente)
 - [ ] Fase 4 - Autonomous Scrum Planner
 - [ ] Fase 5 - Autonomous Delivery Loop
 - [ ] Fase 6 - GitHub + Operator UX
@@ -331,6 +331,21 @@ Criterios de aceptacion:
 - [x] Un crew puede arrancar desde Mission Control usando solo CrewAI y providers configurados.
 - [x] El worker local por defecto usa Ollama.
 - [ ] Un bloqueo real puede escalar automaticamente a un rol Bedrock y volver con decision persistida.
+
+Resultado de validacion 2026-03-22:
+
+- `./.venv/bin/python -m pytest tests -q` paso con `39 passed`.
+- El entorno local quedo alineado a `Python 3.12.13` con bootstrap reproducible via `scripts/bootstrap_local_env.sh`.
+- `scripts/smoke_local.sh` paso con `dispatch_ready=true`, `dispatcher_executor=crewai` y `tool_count=12`.
+- `scripts/smoke_docker.sh` paso con `mission-control-app` y `mission-control-postgres` en `healthy`, mas `GET /api/health` y `GET /api/runtime/health` correctos.
+- El smoke agentic local sobre `The Barber Group` paso: `requirements.md` + `roadmap.md` produjeron `33` requirements, `5` epics, `20` tickets y `0` issues.
+- Ese smoke agentic completo un dispatch `crew_seed=intake` con `Ollama qwen2.5-coder:latest`, dejo la entrada de cola en `completed` y persistio `agent_runs=1`, `task_executions=1` y `llm_invocations=1`.
+
+Conclusion de validacion:
+
+- La base de Fase 3 queda validada en host local, Docker Compose y flujo agentic real con specs externas.
+- Mission Control ya puede ingerir un proyecto real de backend Python y ejecutar intake con telemetria canonica persistida.
+- El trabajo restante de la fase se concentra en escalamiento Bedrock real y cierre del criterio de desbloqueo senior.
 
 ### Fase 4 - Autonomous Scrum Planner
 
