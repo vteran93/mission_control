@@ -18,10 +18,13 @@ class DispatchTask:
     queue_id: int
     target_agent: str
     message_id: int
+    project_blueprint_id: int | None
+    delivery_task_id: int | None
     from_agent: str
     content: str
     priority: str
     retry_count: int
+    crew_seed: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,7 @@ class DispatchResult:
     latency_ms: int | None = None
     attempts: int = 0
     fallback_used: bool = False
+    runtime_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimeProvider(Protocol):

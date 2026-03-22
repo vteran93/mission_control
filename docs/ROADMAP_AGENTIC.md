@@ -304,21 +304,33 @@ Conclusion de validacion:
 
 Objetivo: materializar el runtime de crews, tools y model routing local/cloud.
 
+Estado actual de la fase:
+
+- [x] `CrewAIExecutor` operativo con `Process.hierarchical`
+- [x] `ModelRegistry` con perfiles `worker_local`, `planner_bedrock` y `reviewer_bedrock`
+- [x] Endpoint de runtime para health, dispatch dirigido, recovery de cola y consulta de perfiles
+- [x] Smoke real validado con `CrewAI + Ollama qwen2.5-coder:latest`
+- [x] Politica base de timeout, `retry_count`, fallback y recovery de `processing` abandonado
+- [x] Tools API-first consumibles desde crews
+- [x] Tools de workspace, incluyendo creacion de codigo, Unix, mypy y contexto multi-stack (`npm`, `NuGet/dotnet`, `pip`, `cargo`, `go`)
+- [x] Seeds completos de `Intake`, `Planning`, `Delivery`, `Review` y `Retro`
+- [x] Telemetria persistida en tablas canonicas de delivery tracking para dispatches enlazados a blueprint/task
+
 Tickets:
 
-- `AG-301` Implementar `CrewRuntime` con `Process.hierarchical`.
-- `AG-302` Crear `ModelRegistry` con perfiles configurables para Ollama y Bedrock.
-- `AG-303` Crear tools API-first para Mission Control: backlog, context, status, artifacts, handoffs, feedback.
-- `AG-304` Crear tools de workspace: git, shell, tests, formatter, coverage, docs.
-- `AG-305` Crear seeds de crews: `Intake`, `Planning`, `Delivery`, `Review`, `Retro`.
-- `AG-306` Implementar politicas de escalamiento de Ollama hacia Bedrock.
-- `AG-307` Persistir telemetria de runs, retries, timeouts y fallbacks por provider.
+- `AG-301` Cumplido. `CrewRuntime` ya ejecuta dispatch con `CrewAI` y `Process.hierarchical`.
+- `AG-302` Cumplido. Existe `ModelRegistry` configurable para Ollama y Bedrock, expuesto por API.
+- `AG-303` Cumplido. Existen tools API-first para blueprints, task context, execution report, feedback y artifacts/handoffs consumibles desde crews.
+- `AG-304` Cumplido. Existen tools de workspace para lectura/escritura de codigo, Unix, mypy, tests y contexto operativo multi-stack.
+- `AG-305` Cumplido. Existen seeds funcionales de `Intake`, `Planning`, `Delivery`, `Review` y `Retro`.
+- `AG-306` Cumplido. Existe politica de fallback/escalamiento por `retry_count` con handoff persistido entre perfiles de modelo.
+- `AG-307` Cumplido. Se persisten `agent_runs`, `task_executions`, `llm_invocations` y `handoffs` desde el runtime cuando el dispatch llega con blueprint/task asociados.
 
 Criterios de aceptacion:
 
-- Un crew puede arrancar desde Mission Control usando solo CrewAI y providers configurados.
-- El worker local por defecto usa Ollama.
-- Un bloqueo real puede escalar automaticamente a un rol Bedrock y volver con decision persistida.
+- [x] Un crew puede arrancar desde Mission Control usando solo CrewAI y providers configurados.
+- [x] El worker local por defecto usa Ollama.
+- [ ] Un bloqueo real puede escalar automaticamente a un rol Bedrock y volver con decision persistida.
 
 ### Fase 4 - Autonomous Scrum Planner
 

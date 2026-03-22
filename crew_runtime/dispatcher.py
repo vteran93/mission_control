@@ -32,6 +32,9 @@ class DatabaseQueueDispatcher:
         target_agent: str,
         content: str | None = None,
         priority: str = "normal",
+        project_blueprint_id: int | None = None,
+        delivery_task_id: int | None = None,
+        crew_seed: str | None = None,
     ) -> TaskQueue:
         existing_entry = (
             TaskQueue.query.filter_by(message_id=message.id, target_agent=target_agent)
@@ -44,9 +47,12 @@ class DatabaseQueueDispatcher:
         queue_entry = TaskQueue(
             target_agent=target_agent,
             message_id=message.id,
+            project_blueprint_id=project_blueprint_id,
+            delivery_task_id=delivery_task_id,
             from_agent=message.from_agent,
             content=content or message.content,
             priority=normalize_priority(priority),
+            crew_seed=crew_seed,
             status="pending",
         )
         db.session.add(queue_entry)
@@ -61,6 +67,9 @@ class DatabaseQueueDispatcher:
         from_agent: str,
         task_id: int | None = None,
         priority: str = "normal",
+        project_blueprint_id: int | None = None,
+        delivery_task_id: int | None = None,
+        crew_seed: str | None = None,
     ) -> tuple[Message, TaskQueue]:
         message = Message(
             task_id=task_id,
@@ -73,9 +82,12 @@ class DatabaseQueueDispatcher:
         queue_entry = TaskQueue(
             target_agent=target_agent,
             message_id=message.id,
+            project_blueprint_id=project_blueprint_id,
+            delivery_task_id=delivery_task_id,
             from_agent=from_agent,
             content=message_content,
             priority=normalize_priority(priority),
+            crew_seed=crew_seed,
             status="pending",
         )
         db.session.add(queue_entry)
@@ -182,11 +194,13 @@ class DatabaseQueueDispatcher:
         success: bool,
         detail: str,
         runtime_session_key: str | None = None,
+        runtime_metadata: dict | None = None,
     ) -> TaskQueue:
         queue_entry.status = "completed" if success else "failed"
         queue_entry.completed_at = datetime.now(UTC)
         queue_entry.error_message = None if success else detail
         queue_entry.clawdbot_session_key = runtime_session_key
+        queue_entry.runtime_metadata_json = runtime_metadata or {}
         db.session.commit()
         return queue_entry
 

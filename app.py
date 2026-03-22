@@ -9,7 +9,19 @@ from flask_cors import CORS
 
 from config import load_settings
 from crew_runtime import AgenticRuntime
-from database import Agent, DaemonLog, Document, Message, Notification, Sprint, Task, TaskQueue, db
+from database import (
+    Agent,
+    DaemonLog,
+    DeliveryTaskRecord,
+    Document,
+    Message,
+    Notification,
+    ProjectBlueprintRecord,
+    Sprint,
+    Task,
+    TaskQueue,
+    db,
+)
 from delivery_tracking import DeliveryTrackingService
 from spec_intake import BlueprintPersistenceService, SpecIntakeService
 
@@ -589,6 +601,9 @@ def register_routes(app: Flask) -> None:
         target_agent = data.get("target_agent")
         message_content = data.get("message")
         task_id = data.get("task_id")
+        project_blueprint_id = data.get("project_blueprint_id")
+        delivery_task_id = data.get("delivery_task_id")
+        crew_seed = data.get("crew_seed")
 
         if not target_agent or not message_content:
             return jsonify({"error": "Missing target_agent or message"}), 400
@@ -596,12 +611,43 @@ def register_routes(app: Flask) -> None:
         if target_agent not in app.config["SUPPORTED_AGENT_LABELS"]:
             return jsonify({"error": f"Unsupported target_agent: {target_agent}"}), 400
 
+        if crew_seed is not None:
+            available_seeds = app.extensions["mission_control_runtime"].describe_crew_seeds()
+            if crew_seed not in available_seeds:
+                return jsonify({"error": f"Unsupported crew_seed: {crew_seed}"}), 400
+
+        if project_blueprint_id is not None:
+            try:
+                project_blueprint_id = int(project_blueprint_id)
+            except (TypeError, ValueError):
+                return jsonify({"error": "project_blueprint_id must be numeric"}), 400
+            if db.session.get(ProjectBlueprintRecord, project_blueprint_id) is None:
+                return jsonify({"error": "Blueprint not found"}), 404
+
+        if delivery_task_id is not None:
+            try:
+                delivery_task_id = int(delivery_task_id)
+            except (TypeError, ValueError):
+                return jsonify({"error": "delivery_task_id must be numeric"}), 400
+            delivery_task = db.session.get(DeliveryTaskRecord, delivery_task_id)
+            if delivery_task is None:
+                return jsonify({"error": "Delivery task not found"}), 404
+            if (
+                project_blueprint_id is not None
+                and delivery_task.epic is not None
+                and delivery_task.epic.project_blueprint_id != project_blueprint_id
+            ):
+                return jsonify({"error": "Delivery task does not belong to blueprint"}), 400
+
         _, queue_entry = app.extensions["queue_dispatcher"].create_message_and_enqueue(
             target_agent=target_agent,
             message_content=message_content,
             from_agent=data.get("from_agent", "Victor"),
             task_id=task_id,
             priority=data.get("priority", "normal"),
+            project_blueprint_id=project_blueprint_id,
+            delivery_task_id=delivery_task_id,
+            crew_seed=crew_seed,
         )
 
         return (
@@ -612,6 +658,9 @@ def register_routes(app: Flask) -> None:
                     "message": message_content,
                     "message_id": str(queue_entry.id),
                     "queue_entry_id": queue_entry.id,
+                    "project_blueprint_id": queue_entry.project_blueprint_id,
+                    "delivery_task_id": queue_entry.delivery_task_id,
+                    "crew_seed": queue_entry.crew_seed,
                     "info": "Mensaje en cola en base de datos. Mission Control lo deja disponible para el runtime interno.",
                 }
             ),
@@ -655,6 +704,16 @@ def register_routes(app: Flask) -> None:
     def runtime_model_profiles():
         runtime = app.extensions["mission_control_runtime"]
         return jsonify(runtime.model_registry.describe())
+
+    @app.route("/api/runtime/tools", methods=["GET"])
+    def runtime_tools():
+        runtime = app.extensions["mission_control_runtime"]
+        return jsonify(runtime.describe_tools())
+
+    @app.route("/api/runtime/crew-seeds", methods=["GET"])
+    def runtime_crew_seeds():
+        runtime = app.extensions["mission_control_runtime"]
+        return jsonify(runtime.describe_crew_seeds())
 
     @app.route("/api/runtime/recover-queue", methods=["POST"])
     def runtime_recover_queue():

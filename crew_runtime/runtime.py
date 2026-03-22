@@ -9,10 +9,12 @@ from config import Settings
 
 from .crewai_executor import CrewAIExecutor
 from .contracts import DispatchResult, DispatchTask
+from .crew_seeds import describe_crew_seeds
 from .dispatcher import DatabaseQueueDispatcher
 from .legacy_bridge import LegacyGatewayExecutor
 from .model_registry import ModelRegistry
 from .providers import BedrockProvider, CrewAIProvider, GitHubProvider, OllamaProvider
+from .toolkit import RuntimeToolCatalog
 
 
 class DisabledExecutor:
@@ -39,6 +41,7 @@ class AgenticRuntime:
         self.settings = settings
         self.dispatcher = DatabaseQueueDispatcher()
         self.model_registry = ModelRegistry(settings)
+        self.tool_catalog = RuntimeToolCatalog(settings)
         self.providers = [
             CrewAIProvider(),
             OllamaProvider(settings.ollama),
@@ -59,7 +62,7 @@ class AgenticRuntime:
 
     def _build_executor(self):
         if self.settings.runtime.dispatcher_executor == "crewai":
-            return CrewAIExecutor(self.model_registry)
+            return CrewAIExecutor(self.model_registry, tool_catalog=self.tool_catalog)
         if (
             self.settings.runtime.dispatcher_executor == "legacy_bridge"
             and self.settings.runtime.enable_legacy_bridge
@@ -88,6 +91,11 @@ class AgenticRuntime:
                 stale_after_seconds=self.settings.runtime.dispatcher_recover_after_seconds
             ),
             "model_registry": self.model_registry.describe(),
+            "toolkit": {
+                "tool_count": len(self.tool_catalog.describe()),
+                "tools": self.tool_catalog.describe(),
+                "crew_seeds": describe_crew_seeds(),
+            },
             "providers": {
                 provider.name: asdict(provider.healthcheck()) for provider in self.providers
             },
@@ -115,10 +123,13 @@ class AgenticRuntime:
                     queue_id=queue_entry.id,
                     target_agent=queue_entry.target_agent,
                     message_id=queue_entry.message_id,
+                    project_blueprint_id=queue_entry.project_blueprint_id,
+                    delivery_task_id=queue_entry.delivery_task_id,
                     from_agent=queue_entry.from_agent,
                     content=queue_entry.content,
                     priority=queue_entry.priority,
                     retry_count=queue_entry.retry_count or 0,
+                    crew_seed=queue_entry.crew_seed,
                 )
             )
             self.dispatcher.apply_result(
@@ -126,6 +137,7 @@ class AgenticRuntime:
                 success=result.success,
                 detail=result.detail,
                 runtime_session_key=result.external_ref,
+                runtime_metadata=result.runtime_metadata,
             )
             dispatch_results.append(asdict(result))
         return dispatch_results
@@ -143,6 +155,13 @@ class AgenticRuntime:
             target_agent=target_agent,
         )
         return [self.dispatcher.serialize(queue_entry) for queue_entry in queue_entries]
+
+    def describe_tools(self) -> list[dict[str, str]]:
+        return self.tool_catalog.describe()
+
+    @staticmethod
+    def describe_crew_seeds() -> dict[str, dict[str, object]]:
+        return describe_crew_seeds()
 
     def start_background_dispatcher(self, app) -> bool:
         if (
