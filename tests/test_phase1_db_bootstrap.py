@@ -1,4 +1,5 @@
 import importlib
+import sqlite3
 import sys
 from pathlib import Path
 from unittest.mock import Mock
@@ -73,3 +74,27 @@ def test_alembic_revision_ids_fit_default_version_table_width():
 
     assert revision_ids
     assert all(len(revision_id) <= 32 for revision_id in revision_ids)
+
+
+def test_run_migrations_supports_sqlite_backend(tmp_path):
+    db_bootstrap = load_module("db_bootstrap")
+    sqlite_path = tmp_path / "mission_control.db"
+    alembic_ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+    db_bootstrap.run_migrations(
+        database_url=f"sqlite:///{sqlite_path}",
+        alembic_ini_path=alembic_ini,
+    )
+
+    with sqlite3.connect(sqlite_path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(task_queue)")
+        }
+        foreign_key_targets = {
+            row[2]
+            for row in connection.execute("PRAGMA foreign_key_list(task_queue)")
+        }
+
+    assert {"project_blueprint_id", "delivery_task_id", "crew_seed", "runtime_metadata_json"} <= columns
+    assert {"project_blueprints", "delivery_tasks"} <= foreign_key_targets
