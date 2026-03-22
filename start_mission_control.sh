@@ -1,17 +1,23 @@
 #!/bin/bash
 # Mission Control Startup Script
-# Ubicación: ~/repositories/mission_control/start_mission_control.sh
 
-set -e
+set -euo pipefail
 
-REPO_DIR="$HOME/repositories/mission_control"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$REPO_DIR/logs"
 PID_FILE="$REPO_DIR/mission_control.pid"
 PORT="${PORT:-5001}"
 PYTHON_BIN="${PYTHON_BIN:-$REPO_DIR/.venv/bin/python}"
+TARGET_PYTHON_VERSION="${TARGET_PYTHON_VERSION:-3.12}"
+AUTO_BOOTSTRAP_LOCAL_ENV="${AUTO_BOOTSTRAP_LOCAL_ENV:-1}"
+LOCAL_RUNTIME_DIR="${MISSION_CONTROL_RUNTIME_DIR:-$REPO_DIR/.runtime-local}"
+LOCAL_INSTANCE_PATH="${MISSION_CONTROL_INSTANCE_PATH:-$REPO_DIR/.instance-local}"
+LOCAL_DISPATCHER_EXECUTOR="${MISSION_CONTROL_DISPATCHER_EXECUTOR:-crewai}"
 
 # Crear directorio de logs si no existe
 mkdir -p "$LOG_DIR"
+mkdir -p "$LOCAL_RUNTIME_DIR"
+mkdir -p "$LOCAL_INSTANCE_PATH"
 
 # Verificar si ya está corriendo
 if [ -f "$PID_FILE" ]; then
@@ -28,12 +34,36 @@ fi
 # Navegar al directorio
 cd "$REPO_DIR"
 
+ensure_local_python() {
+    if [ ! -x "$PYTHON_BIN" ] && [ "${AUTO_BOOTSTRAP_LOCAL_ENV}" = "1" ]; then
+        echo "📦 Preparando entorno local Python ${TARGET_PYTHON_VERSION}..."
+        bash "$REPO_DIR/scripts/bootstrap_local_env.sh"
+    fi
+
+    if [ ! -x "$PYTHON_BIN" ]; then
+        echo "❌ No se encontró Python virtualenv en $PYTHON_BIN"
+        echo "Ejecuta ./scripts/bootstrap_local_env.sh o exporta PYTHON_BIN antes de ejecutar."
+        exit 1
+    fi
+
+    CURRENT_VERSION="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    if [ "$CURRENT_VERSION" != "$TARGET_PYTHON_VERSION" ]; then
+        if [ "${AUTO_BOOTSTRAP_LOCAL_ENV}" = "1" ] && [ "$PYTHON_BIN" = "$REPO_DIR/.venv/bin/python" ]; then
+            echo "📦 Reemplazando virtualenv local Python ${CURRENT_VERSION} por ${TARGET_PYTHON_VERSION}..."
+            bash "$REPO_DIR/scripts/bootstrap_local_env.sh"
+            CURRENT_VERSION="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+        fi
+
+        if [ "$CURRENT_VERSION" != "$TARGET_PYTHON_VERSION" ]; then
+            echo "❌ Python local incompatible: ${CURRENT_VERSION}"
+            echo "Mission Control requiere Python ${TARGET_PYTHON_VERSION} para CrewAI."
+            exit 1
+        fi
+    fi
+}
+
 # Verificar dependencias
-if [ ! -x "$PYTHON_BIN" ]; then
-    echo "❌ No se encontró Python virtualenv en $PYTHON_BIN"
-    echo "Crea la venv o exporta PYTHON_BIN antes de ejecutar."
-    exit 1
-fi
+ensure_local_python
 
 if ! "$PYTHON_BIN" -m pip list | grep -q Flask; then
     echo "📦 Instalando dependencias..."
@@ -42,7 +72,7 @@ fi
 
 # Iniciar servidor en background
 echo "🚀 Iniciando Mission Control..."
-nohup env PORT="$PORT" "$PYTHON_BIN" app.py > "$LOG_DIR/mission_control.log" 2>&1 &
+nohup env PORT="$PORT" MISSION_CONTROL_RUNTIME_DIR="$LOCAL_RUNTIME_DIR" MISSION_CONTROL_INSTANCE_PATH="$LOCAL_INSTANCE_PATH" MISSION_CONTROL_DISPATCHER_EXECUTOR="$LOCAL_DISPATCHER_EXECUTOR" "$PYTHON_BIN" app.py > "$LOG_DIR/mission_control.log" 2>&1 &
 PID=$!
 
 # Guardar PID
@@ -57,6 +87,9 @@ if ps -p "$PID" > /dev/null; then
         echo "✅ Mission Control ONLINE (PID: $PID)"
         echo "📊 Dashboard: http://localhost:${PORT}"
         echo "🔧 API: http://localhost:${PORT}/api/tasks"
+        echo "🗃️  Instance local: $LOCAL_INSTANCE_PATH"
+        echo "🗂️  Runtime local: $LOCAL_RUNTIME_DIR"
+        echo "🤖 Dispatcher local: $LOCAL_DISPATCHER_EXECUTOR"
         echo "📋 Logs: tail -f $LOG_DIR/mission_control.log"
     else
         echo "⚠️  Proceso corriendo pero API no responde"
