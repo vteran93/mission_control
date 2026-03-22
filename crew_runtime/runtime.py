@@ -7,14 +7,17 @@ from typing import Any
 
 from config import Settings
 
+from .crewai_executor import CrewAIExecutor
 from .contracts import DispatchResult, DispatchTask
 from .dispatcher import DatabaseQueueDispatcher
 from .legacy_bridge import LegacyGatewayExecutor
+from .model_registry import ModelRegistry
 from .providers import BedrockProvider, CrewAIProvider, GitHubProvider, OllamaProvider
 
 
 class DisabledExecutor:
     name = "disabled"
+    available = False
 
     def dispatch(self, task: DispatchTask) -> DispatchResult:
         return DispatchResult(
@@ -35,6 +38,7 @@ class AgenticRuntime:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.dispatcher = DatabaseQueueDispatcher()
+        self.model_registry = ModelRegistry(settings)
         self.providers = [
             CrewAIProvider(),
             OllamaProvider(settings.ollama),
@@ -47,9 +51,15 @@ class AgenticRuntime:
 
     @property
     def dispatch_ready(self) -> bool:
-        return self.settings.runtime.enabled and self.executor.name != "disabled"
+        return (
+            self.settings.runtime.enabled
+            and self.executor.name != "disabled"
+            and getattr(self.executor, "available", True)
+        )
 
     def _build_executor(self):
+        if self.settings.runtime.dispatcher_executor == "crewai":
+            return CrewAIExecutor(self.model_registry)
         if (
             self.settings.runtime.dispatcher_executor == "legacy_bridge"
             and self.settings.runtime.enable_legacy_bridge
@@ -68,19 +78,35 @@ class AgenticRuntime:
                 "dispatcher_autostart": self.settings.runtime.dispatcher_autostart,
                 "dispatcher_executor": self.executor.name,
                 "dispatcher_batch_size": self.settings.runtime.dispatcher_batch_size,
+                "dispatcher_recover_after_seconds": self.settings.runtime.dispatcher_recover_after_seconds,
+                "dispatcher_escalate_after_retries": self.settings.runtime.dispatcher_escalate_after_retries,
+                "dispatcher_enable_fallback": self.settings.runtime.dispatcher_enable_fallback,
                 "legacy_bridge_enabled": self.settings.runtime.enable_legacy_bridge,
+                "executor_available": getattr(self.executor, "available", True),
             },
+            "queue": self.dispatcher.queue_summary(
+                stale_after_seconds=self.settings.runtime.dispatcher_recover_after_seconds
+            ),
+            "model_registry": self.model_registry.describe(),
             "providers": {
                 provider.name: asdict(provider.healthcheck()) for provider in self.providers
             },
         }
 
-    def process_pending(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+    def process_pending(
+        self,
+        *,
+        limit: int | None = None,
+        target_agent: str | None = None,
+        queue_entry_id: int | None = None,
+    ) -> list[dict[str, Any]]:
         if not self.dispatch_ready:
             return []
 
         queue_entries = self.dispatcher.claim_pending_entries(
             limit=limit or self.settings.runtime.dispatcher_batch_size,
+            target_agent=target_agent,
+            queue_entry_id=queue_entry_id,
         )
         dispatch_results: list[dict[str, Any]] = []
         for queue_entry in queue_entries:
@@ -103,6 +129,20 @@ class AgenticRuntime:
             )
             dispatch_results.append(asdict(result))
         return dispatch_results
+
+    def recover_stale_processing(
+        self,
+        *,
+        stale_after_seconds: float | None = None,
+        target_agent: str | None = None,
+    ) -> list[dict[str, Any]]:
+        queue_entries = self.dispatcher.recover_abandoned_entries(
+            stale_after_seconds=(
+                stale_after_seconds or self.settings.runtime.dispatcher_recover_after_seconds
+            ),
+            target_agent=target_agent,
+        )
+        return [self.dispatcher.serialize(queue_entry) for queue_entry in queue_entries]
 
     def start_background_dispatcher(self, app) -> bool:
         if (

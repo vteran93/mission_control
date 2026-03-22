@@ -31,6 +31,11 @@ class DispatchResult:
     detail: str
     runtime_name: str
     external_ref: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    latency_ms: int | None = None
+    attempts: int = 0
+    fallback_used: bool = False
 
 
 class RuntimeProvider(Protocol):

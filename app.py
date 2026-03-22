@@ -651,6 +651,27 @@ def register_routes(app: Flask) -> None:
         runtime = app.extensions["mission_control_runtime"]
         return jsonify(runtime.healthcheck())
 
+    @app.route("/api/runtime/model-profiles", methods=["GET"])
+    def runtime_model_profiles():
+        runtime = app.extensions["mission_control_runtime"]
+        return jsonify(runtime.model_registry.describe())
+
+    @app.route("/api/runtime/recover-queue", methods=["POST"])
+    def runtime_recover_queue():
+        runtime = app.extensions["mission_control_runtime"]
+        payload = request.get_json(silent=True) or {}
+        recovered_entries = runtime.recover_stale_processing(
+            stale_after_seconds=payload.get("stale_after_seconds"),
+            target_agent=payload.get("target_agent"),
+        )
+        return jsonify(
+            {
+                "status": "ok",
+                "recovered_count": len(recovered_entries),
+                "recovered_entries": recovered_entries,
+            }
+        )
+
     @app.route("/api/runtime/dispatch", methods=["POST"])
     def runtime_dispatch():
         runtime = app.extensions["mission_control_runtime"]
@@ -667,7 +688,19 @@ def register_routes(app: Flask) -> None:
             )
 
         payload = request.get_json(silent=True) or {}
-        results = runtime.process_pending(limit=payload.get("limit"))
+        if payload.get("queue_entry_id") is not None:
+            try:
+                queue_entry_id = int(payload["queue_entry_id"])
+            except (TypeError, ValueError):
+                return jsonify({"error": "queue_entry_id must be numeric"}), 400
+        else:
+            queue_entry_id = None
+
+        results = runtime.process_pending(
+            limit=payload.get("limit"),
+            target_agent=payload.get("target_agent"),
+            queue_entry_id=queue_entry_id,
+        )
         return jsonify(
             {
                 "status": "ok",

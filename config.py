@@ -34,6 +34,11 @@ class RuntimeSettings:
     dispatcher_poll_interval_seconds: float
     dispatcher_batch_size: int
     dispatcher_executor: str
+    dispatcher_recover_after_seconds: float
+    dispatcher_escalate_after_retries: int
+    dispatcher_enable_fallback: bool
+    llm_timeout_seconds: float
+    llm_max_tokens: int
     enable_legacy_bridge: bool
     legacy_gateway_url: str
     legacy_gateway_token: str | None
@@ -106,8 +111,13 @@ class Settings:
             "MISSION_CONTROL_DISPATCHER_POLL_INTERVAL_SECONDS": self.runtime.dispatcher_poll_interval_seconds,
             "MISSION_CONTROL_DISPATCHER_BATCH_SIZE": self.runtime.dispatcher_batch_size,
             "MISSION_CONTROL_DISPATCHER_EXECUTOR": self.runtime.dispatcher_executor,
+            "MISSION_CONTROL_DISPATCHER_RECOVER_AFTER_SECONDS": self.runtime.dispatcher_recover_after_seconds,
+            "MISSION_CONTROL_DISPATCHER_ESCALATE_AFTER_RETRIES": self.runtime.dispatcher_escalate_after_retries,
+            "MISSION_CONTROL_DISPATCHER_ENABLE_FALLBACK": self.runtime.dispatcher_enable_fallback,
             "MISSION_CONTROL_ENABLE_LEGACY_BRIDGE": self.runtime.enable_legacy_bridge,
             "MISSION_CONTROL_LEGACY_GATEWAY_URL": self.runtime.legacy_gateway_url,
+            "MISSION_CONTROL_LLM_TIMEOUT_SECONDS": self.runtime.llm_timeout_seconds,
+            "MISSION_CONTROL_LLM_MAX_TOKENS": self.runtime.llm_max_tokens,
             "OLLAMA_BASE_URL": self.ollama.base_url,
             "OLLAMA_DEFAULT_MODEL": self.ollama.default_model,
             "OLLAMA_HEALTHCHECK_TIMEOUT_SECONDS": self.ollama.healthcheck_timeout_seconds,
@@ -159,6 +169,26 @@ def load_settings(base_dir: str | Path | None = None) -> Settings:
             default=5,
         ),
         dispatcher_executor=os.getenv("MISSION_CONTROL_DISPATCHER_EXECUTOR", "disabled"),
+        dispatcher_recover_after_seconds=_as_float(
+            os.getenv("MISSION_CONTROL_DISPATCHER_RECOVER_AFTER_SECONDS"),
+            default=900.0,
+        ),
+        dispatcher_escalate_after_retries=_as_int(
+            os.getenv("MISSION_CONTROL_DISPATCHER_ESCALATE_AFTER_RETRIES"),
+            default=1,
+        ),
+        dispatcher_enable_fallback=_as_bool(
+            os.getenv("MISSION_CONTROL_DISPATCHER_ENABLE_FALLBACK"),
+            default=True,
+        ),
+        llm_timeout_seconds=_as_float(
+            os.getenv("MISSION_CONTROL_LLM_TIMEOUT_SECONDS"),
+            default=180.0,
+        ),
+        llm_max_tokens=_as_int(
+            os.getenv("MISSION_CONTROL_LLM_MAX_TOKENS"),
+            default=2048,
+        ),
         enable_legacy_bridge=_as_bool(
             os.getenv("MISSION_CONTROL_ENABLE_LEGACY_BRIDGE"),
             default=False,
