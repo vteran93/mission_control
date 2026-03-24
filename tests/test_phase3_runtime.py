@@ -192,6 +192,7 @@ def test_runtime_exposes_tools_and_crew_seeds(tmp_path, monkeypatch):
     assert "workspace_run_mypy" in tool_names
     assert "workspace_package_manager_context" in tool_names
     assert "mission_control_execution_report" in tool_names
+    assert "mission_control_scrum_plan_context" in tool_names
 
     assert seeds_response.status_code == 200
     seeds_payload = seeds_response.get_json()

@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from flask import Flask, current_app, jsonify, render_template, request
 from flask_cors import CORS
 
+from autonomous_scrum import AutonomousScrumPlannerService
 from config import load_settings
 from crew_runtime import AgenticRuntime
 from database import (
@@ -67,6 +68,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.extensions["spec_intake_service"] = SpecIntakeService()
     app.extensions["blueprint_persistence_service"] = BlueprintPersistenceService()
     app.extensions["delivery_tracking_service"] = DeliveryTrackingService()
+    app.extensions["autonomous_scrum_service"] = AutonomousScrumPlannerService()
     register_routes(app)
     return app
 
@@ -412,6 +414,74 @@ def register_routes(app: Flask) -> None:
         except LookupError as exc:
             return jsonify({"error": str(exc)}), 404
         return jsonify(report)
+
+    @app.route("/api/blueprints/<int:blueprint_id>/scrum-plans", methods=["GET"])
+    def list_scrum_plans(blueprint_id: int):
+        planner_service = app.extensions["autonomous_scrum_service"]
+        try:
+            plans = planner_service.list_plans(blueprint_id)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        return jsonify([plan.to_dict() for plan in plans])
+
+    @app.route("/api/blueprints/<int:blueprint_id>/scrum-plan", methods=["GET", "POST"])
+    def scrum_plan(blueprint_id: int):
+        planner_service = app.extensions["autonomous_scrum_service"]
+
+        if request.method == "GET":
+            try:
+                plan = planner_service.get_plan(
+                    blueprint_id,
+                    plan_id=request.args.get("plan_id", type=int),
+                    status=request.args.get("status", default="active", type=str),
+                )
+            except LookupError as exc:
+                return jsonify({"error": str(exc)}), 404
+            return jsonify(planner_service.serialize_plan(plan))
+
+        data = request.get_json(silent=True) or {}
+        try:
+            plan = planner_service.generate_plan(
+                blueprint_id=blueprint_id,
+                sprint_capacity=data.get("sprint_capacity", 16),
+                sprint_length_days=data.get("sprint_length_days", 7),
+                start_date=data.get("start_date"),
+                velocity_factor=data.get("velocity_factor", 1.0),
+                blocked_ticket_ids=data.get("blocked_ticket_ids"),
+                changed_ticket_ids=data.get("changed_ticket_ids"),
+                planning_mode=data.get("planning_mode", "autonomous"),
+                replan_reason=data.get("replan_reason"),
+                source=data.get("source", "heuristic"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(planner_service.serialize_plan(plan)), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/scrum-plan/replan", methods=["POST"])
+    def scrum_replan(blueprint_id: int):
+        planner_service = app.extensions["autonomous_scrum_service"]
+        data = request.get_json(silent=True) or {}
+
+        try:
+            plan = planner_service.generate_plan(
+                blueprint_id=blueprint_id,
+                sprint_capacity=data.get("sprint_capacity", 16),
+                sprint_length_days=data.get("sprint_length_days", 7),
+                start_date=data.get("start_date"),
+                velocity_factor=data.get("velocity_factor", 1.0),
+                blocked_ticket_ids=data.get("blocked_ticket_ids"),
+                changed_ticket_ids=data.get("changed_ticket_ids"),
+                planning_mode="replan",
+                replan_reason=data.get("reason") or data.get("replan_reason"),
+                source=data.get("source", "heuristic"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(planner_service.serialize_plan(plan)), 201
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):

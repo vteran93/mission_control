@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+from autonomous_scrum import AutonomousScrumPlannerService
 from config import Settings
 from database import ProjectBlueprintRecord, db
 from delivery_tracking import DeliveryTrackingService
@@ -48,6 +49,11 @@ TOOL_SPECS: tuple[RuntimeToolSpec, ...] = (
         name="mission_control_execution_report",
         category="mission_control",
         description="Devuelve el reporte agregado de ejecucion, retries, throughput y LLM usage.",
+    ),
+    RuntimeToolSpec(
+        name="mission_control_scrum_plan_context",
+        category="mission_control",
+        description="Devuelve el Scrum plan activo, sprints, readiness, DoR/DoD y riesgo por ticket.",
     ),
     RuntimeToolSpec(
         name="mission_control_feedback_digest",
@@ -103,6 +109,7 @@ class RuntimeToolCatalog:
         self.workspace_root = settings.base_dir.resolve()
         self.persistence_service = BlueprintPersistenceService()
         self.delivery_tracking_service = DeliveryTrackingService()
+        self.scrum_planner_service = AutonomousScrumPlannerService()
 
     def describe(self) -> list[dict[str, str]]:
         return [tool.to_dict() for tool in TOOL_SPECS]
@@ -147,6 +154,14 @@ class RuntimeToolCatalog:
         def mission_control_execution_report(blueprint_id: int) -> str:
             """Devuelve el reporte agregado de ejecucion de un blueprint."""
             return catalog._dump_payload(catalog.delivery_tracking_service.build_report(blueprint_id))
+
+        @tool("mission_control_scrum_plan_context")
+        def mission_control_scrum_plan_context(blueprint_id: int, plan_id: int = 0) -> str:
+            """Devuelve el Scrum plan activo o uno especifico por plan_id."""
+            resolved_plan_id = plan_id or None
+            return catalog._dump_payload(
+                catalog.get_scrum_plan_context(blueprint_id=blueprint_id, plan_id=resolved_plan_id)
+            )
 
         @tool("mission_control_feedback_digest")
         def mission_control_feedback_digest(blueprint_id: int) -> str:
@@ -205,6 +220,7 @@ class RuntimeToolCatalog:
             "mission_control_blueprint_context": mission_control_blueprint_context,
             "mission_control_delivery_task_context": mission_control_delivery_task_context,
             "mission_control_execution_report": mission_control_execution_report,
+            "mission_control_scrum_plan_context": mission_control_scrum_plan_context,
             "mission_control_feedback_digest": mission_control_feedback_digest,
             "mission_control_artifact_digest": mission_control_artifact_digest,
             "workspace_stack_context": workspace_stack_context,
@@ -220,6 +236,11 @@ class RuntimeToolCatalog:
     def get_blueprint_context(self, blueprint_id: int) -> dict[str, Any]:
         blueprint = self._get_blueprint(blueprint_id)
         detail = self.persistence_service.serialize_blueprint_detail(blueprint)
+        active_scrum_plan = None
+        try:
+            active_scrum_plan = self.scrum_planner_service.get_plan_context(blueprint_id)
+        except LookupError:
+            active_scrum_plan = None
         return {
             "id": detail["id"],
             "project_name": detail["project_name"],
@@ -228,6 +249,7 @@ class RuntimeToolCatalog:
             "summary": detail["summary"],
             "requirements": detail["requirements"][:20],
             "roadmap_epics": detail["roadmap_epics"],
+            "active_scrum_plan": active_scrum_plan,
         }
 
     def get_delivery_task_context(self, *, blueprint_id: int, delivery_task_id: int) -> dict[str, Any]:
@@ -250,6 +272,15 @@ class RuntimeToolCatalog:
             "stage_feedback": [item.to_dict() for item in blueprint.stage_feedback],
             "retrospective_items": [item.to_dict() for item in blueprint.retrospective_items],
         }
+
+    def get_scrum_plan_context(
+        self,
+        *,
+        blueprint_id: int,
+        plan_id: int | None = None,
+    ) -> dict[str, Any]:
+        self._get_blueprint(blueprint_id)
+        return self.scrum_planner_service.get_plan_context(blueprint_id, plan_id=plan_id)
 
     def get_artifact_digest(self, blueprint_id: int) -> dict[str, Any]:
         blueprint = self._get_blueprint(blueprint_id)

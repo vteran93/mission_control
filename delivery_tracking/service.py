@@ -20,7 +20,7 @@ from database import (
 
 
 VALID_SPRINT_CYCLE_STATUSES = {"planned", "active", "completed", "blocked", "cancelled"}
-VALID_STAGE_NAMES = {"planning", "execution", "review", "qa_gate", "release", "retrospective"}
+VALID_STAGE_NAMES = {"planning", "daily_summary", "execution", "review", "qa_gate", "release", "retrospective"}
 VALID_STAGE_STATUSES = {"scheduled", "in_progress", "completed", "blocked", "failed"}
 VALID_AGENT_RUN_STATUSES = {"queued", "planning", "running", "blocked", "completed", "failed"}
 VALID_TASK_EXECUTION_STATUSES = {"queued", "in_progress", "review", "done", "blocked", "failed"}
@@ -312,6 +312,8 @@ class DeliveryTrackingService:
 
         append_items(blueprint.sprint_stage_events, "sprint_stage_event")
         append_items(blueprint.stage_feedback, "stage_feedback")
+        append_items(blueprint.scrum_plans, "scrum_plan")
+        append_items(blueprint.scrum_plan_items, "scrum_plan_item")
         append_items(blueprint.agent_runs, "agent_run")
         append_items(blueprint.task_executions, "task_execution")
         append_items(blueprint.artifacts, "artifact")
@@ -330,6 +332,8 @@ class DeliveryTrackingService:
         agent_runs = list(blueprint.agent_runs)
         task_executions = list(blueprint.task_executions)
         stage_events = list(blueprint.sprint_stage_events)
+        scrum_plans = list(blueprint.scrum_plans)
+        scrum_plan_items = list(blueprint.scrum_plan_items)
         handoffs = list(blueprint.handoffs)
         llm_invocations = list(blueprint.llm_invocations)
         artifacts = list(blueprint.artifacts)
@@ -375,6 +379,8 @@ class DeliveryTrackingService:
                 "epics": len(blueprint.delivery_epics),
                 "delivery_tasks": sum(len(epic.delivery_tasks) for epic in blueprint.delivery_epics),
                 "sprint_cycles": len(sprint_cycles),
+                "scrum_plans": len(scrum_plans),
+                "scrum_plan_items": len(scrum_plan_items),
                 "stage_events": len(stage_events),
                 "stage_feedback": len(blueprint.stage_feedback),
                 "agent_runs": len(agent_runs),
@@ -402,5 +408,7 @@ class DeliveryTrackingService:
                 "retry_rate": retry_rate,
                 "defect_leakage_estimate": defect_leakage,
                 "throughput_estimate": completed_task_count,
+                "planned_task_count": sum(1 for item in scrum_plan_items if item.plan_status == "planned"),
+                "blocked_planning_count": sum(1 for item in scrum_plan_items if item.plan_status == "blocked"),
             },
         }

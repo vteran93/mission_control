@@ -187,6 +187,11 @@ class BlueprintPersistenceService:
             blueprint_record.sprint_cycles,
             key=lambda item: item.created_at.isoformat() if item.created_at else "",
         )
+        scrum_plans = sorted(
+            blueprint_record.scrum_plans,
+            key=lambda item: (item.version, item.created_at.isoformat() if item.created_at else ""),
+            reverse=True,
+        )
 
         return {
             **blueprint_record.to_dict(),
@@ -224,6 +229,7 @@ class BlueprintPersistenceService:
                 for epic in epics
             ],
             "sprint_cycles": [item.to_dict() for item in sprint_cycles],
+            "scrum_plans": [item.to_dict() for item in scrum_plans],
             "stage_feedback": [item.to_dict() for item in stage_feedback],
             "retrospective_items": [item.to_dict() for item in retrospective_items],
             "summary": {
@@ -231,6 +237,8 @@ class BlueprintPersistenceService:
                 "epics_count": len(epics),
                 "tickets_count": sum(len(epic.delivery_tasks) for epic in epics),
                 "sprint_cycles_count": len(sprint_cycles),
+                "scrum_plans_count": len(scrum_plans),
+                "scrum_plan_items_count": len(blueprint_record.scrum_plan_items),
                 "feedback_count": len(stage_feedback),
                 "retrospective_items_count": len(retrospective_items),
                 "issues_count": len(blueprint_record.issues_json or []),

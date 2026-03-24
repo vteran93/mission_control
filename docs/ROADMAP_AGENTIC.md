@@ -10,7 +10,7 @@
 - [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
 - [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
 - [ ] Fase 3 - CrewAI Runtime Hybrid (runtime operativo validado; escalamiento real a Bedrock sigue pendiente)
-- [ ] Fase 4 - Autonomous Scrum Planner
+- [ ] Fase 4 - Autonomous Scrum Planner (slice inicial entregado: scrum plan versionado, replanificacion, ceremonias y score de riesgo)
 - [ ] Fase 5 - Autonomous Delivery Loop
 - [ ] Fase 6 - GitHub + Operator UX
 - [ ] Fase 7 - Hardening & Benchmark
@@ -351,14 +351,19 @@ Conclusion de validacion:
 
 Objetivo: convertir el blueprint en backlog ejecutable, sprints y ceremonias automaticas.
 
+Estado actual:
+
+- Entregado en `Phase4_automatic_scrum`: `scrum_plans` + `scrum_plan_items` persistidos, endpoint `/api/blueprints/<id>/scrum-plan`, `replan`, timeline/report extendidos y tool `mission_control_scrum_plan_context`.
+- Validado con `42 passed` en `pytest`, smoke local OK sobre Python 3.12 y smoke Docker OK con `app` + `postgres` en `healthy`.
+
 Tickets:
 
-- `AG-401` Generar backlog inicial desde blueprint: epics, stories, tasks, dependencias y estimaciones.
-- `AG-402` Crear `Scrum Planning Crew` para priorizacion y asignacion de capacidad.
-- `AG-403` Generar `Definition of Ready` y `Definition of Done` por ticket.
-- `AG-404` Crear reglas para replanificacion automatica cuando hay bloqueos o cambios de alcance.
-- `AG-405` Persistir ceremonias: planning, daily summary, review, retrospective.
-- `AG-406` Crear score de riesgo por sprint y triggers de escalamiento.
+- `AG-401` cumplido: backlog inicial, orden por dependencias, estimacion heuristica a story points y asignacion de sprint.
+- `AG-402` parcial: existe seed `planning`, contexto runtime y API-first para consumir el plan; falta ejecutar un `Scrum Planning Crew` dedicado como etapa obligatoria del planner.
+- `AG-403` cumplido: `Definition of Ready` y `Definition of Done` por ticket persistidos en `scrum_plan_items`.
+- `AG-404` cumplido: endpoint de `replan` con versionado, supersede del plan activo y tratamiento de `blocked_ticket_ids` / `changed_ticket_ids`.
+- `AG-405` cumplido: ceremonias persistidas en `sprint_stage_events` (`planning`, `daily_summary`, `review`, `retrospective`) y feedback de planning en `stage_feedback`.
+- `AG-406` cumplido: score de riesgo por ticket y sprint, `confidence_score` del plan y `escalation_trigger` canonico.
 
 Criterios de aceptacion:
 

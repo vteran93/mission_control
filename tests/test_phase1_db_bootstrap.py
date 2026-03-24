@@ -91,10 +91,22 @@ def test_run_migrations_supports_sqlite_backend(tmp_path):
             row[1]
             for row in connection.execute("PRAGMA table_info(task_queue)")
         }
+        sprint_cycle_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(sprint_cycles)")
+        }
         foreign_key_targets = {
             row[2]
             for row in connection.execute("PRAGMA foreign_key_list(task_queue)")
         }
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
 
     assert {"project_blueprint_id", "delivery_task_id", "crew_seed", "runtime_metadata_json"} <= columns
+    assert "scrum_plan_id" in sprint_cycle_columns
     assert {"project_blueprints", "delivery_tasks"} <= foreign_key_targets
+    assert {"scrum_plans", "scrum_plan_items"} <= tables

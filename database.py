@@ -493,6 +493,7 @@ class SprintCycleRecord(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    scrum_plan_id = db.Column(db.Integer, db.ForeignKey('scrum_plans.id'), nullable=True, index=True)
     name = db.Column(db.String(100), nullable=False)
     goal = db.Column(db.Text, default='')
     capacity = db.Column(db.Integer)
@@ -503,11 +504,13 @@ class SprintCycleRecord(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     blueprint = db.relationship('ProjectBlueprintRecord', backref='sprint_cycles')
+    scrum_plan = db.relationship('ScrumPlanRecord', backref='sprint_cycles')
 
     def to_dict(self):
         return {
             'id': self.id,
             'project_blueprint_id': self.project_blueprint_id,
+            'scrum_plan_id': self.scrum_plan_id,
             'name': self.name,
             'goal': self.goal,
             'capacity': self.capacity,
@@ -542,6 +545,124 @@ class SprintStageEventRecord(db.Model):
             'status': self.status,
             'source': self.source,
             'summary': self.summary,
+            'metadata': self.metadata_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ScrumPlanRecord(db.Model):
+    """Plan Scrum autonomo versionado para un blueprint"""
+    __tablename__ = 'scrum_plans'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    version = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(50), nullable=False, default='active', index=True)
+    planning_mode = db.Column(db.String(50), nullable=False, default='autonomous', index=True)
+    source = db.Column(db.String(100), nullable=False, default='heuristic')
+    sprint_capacity = db.Column(db.Integer, nullable=False)
+    sprint_length_days = db.Column(db.Integer, nullable=False)
+    velocity_factor = db.Column(db.Float, nullable=False, default=1.0)
+    start_date = db.Column(db.DateTime)
+    end_date = db.Column(db.DateTime)
+    confidence_score = db.Column(db.Float, nullable=False, default=0.0)
+    risk_score = db.Column(db.Integer, nullable=False, default=0)
+    risk_level = db.Column(db.String(50), nullable=False, default='low', index=True)
+    escalation_trigger = db.Column(db.String(100), nullable=False, default='none', index=True)
+    replan_reason = db.Column(db.Text)
+    summary_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='scrum_plans')
+
+    __table_args__ = (
+        db.UniqueConstraint('project_blueprint_id', 'version', name='uq_scrum_plans_blueprint_version'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'version': self.version,
+            'status': self.status,
+            'planning_mode': self.planning_mode,
+            'source': self.source,
+            'sprint_capacity': self.sprint_capacity,
+            'sprint_length_days': self.sprint_length_days,
+            'velocity_factor': self.velocity_factor,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'confidence_score': self.confidence_score,
+            'risk_score': self.risk_score,
+            'risk_level': self.risk_level,
+            'escalation_trigger': self.escalation_trigger,
+            'replan_reason': self.replan_reason,
+            'summary': self.summary_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ScrumPlanItemRecord(db.Model):
+    """Plan item canonico por ticket dentro de un Scrum plan"""
+    __tablename__ = 'scrum_plan_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scrum_plan_id = db.Column(db.Integer, db.ForeignKey('scrum_plans.id'), nullable=False, index=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
+    delivery_task_id = db.Column(db.Integer, db.ForeignKey('delivery_tasks.id'), nullable=False, index=True)
+    sprint_cycle_id = db.Column(db.Integer, db.ForeignKey('sprint_cycles.id'), nullable=True, index=True)
+    plan_status = db.Column(db.String(50), nullable=False, default='planned', index=True)
+    readiness_status = db.Column(db.String(50), nullable=False, default='needs_clarification', index=True)
+    assignee_role = db.Column(db.String(50), nullable=True, index=True)
+    sprint_order = db.Column(db.Integer)
+    sequence_index = db.Column(db.Integer, nullable=False)
+    dependency_depth = db.Column(db.Integer, nullable=False, default=0)
+    story_points = db.Column(db.Integer, nullable=False, default=0)
+    capacity_cost = db.Column(db.Integer, nullable=False, default=0)
+    risk_score = db.Column(db.Integer, nullable=False, default=0)
+    risk_level = db.Column(db.String(50), nullable=False, default='low', index=True)
+    depends_on_json = db.Column(db.JSON, default=list)
+    blocked_by_json = db.Column(db.JSON, default=list)
+    definition_of_ready_json = db.Column(db.JSON, default=list)
+    definition_of_done_json = db.Column(db.JSON, default=list)
+    planning_notes = db.Column(db.Text)
+    metadata_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    scrum_plan = db.relationship('ScrumPlanRecord', backref='items')
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='scrum_plan_items')
+    delivery_task = db.relationship('DeliveryTaskRecord', backref='scrum_plan_items')
+    sprint_cycle = db.relationship('SprintCycleRecord', backref='scrum_plan_items')
+
+    __table_args__ = (
+        db.UniqueConstraint('scrum_plan_id', 'delivery_task_id', name='uq_scrum_plan_items_plan_task'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'scrum_plan_id': self.scrum_plan_id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'delivery_task_id': self.delivery_task_id,
+            'sprint_cycle_id': self.sprint_cycle_id,
+            'ticket_id': self.delivery_task.ticket_id if self.delivery_task else None,
+            'title': self.delivery_task.title if self.delivery_task else None,
+            'sprint_name': self.sprint_cycle.name if self.sprint_cycle else None,
+            'plan_status': self.plan_status,
+            'readiness_status': self.readiness_status,
+            'assignee_role': self.assignee_role,
+            'sprint_order': self.sprint_order,
+            'sequence_index': self.sequence_index,
+            'dependency_depth': self.dependency_depth,
+            'story_points': self.story_points,
+            'capacity_cost': self.capacity_cost,
+            'risk_score': self.risk_score,
+            'risk_level': self.risk_level,
+            'depends_on': self.depends_on_json or [],
+            'blocked_by': self.blocked_by_json or [],
+            'definition_of_ready': self.definition_of_ready_json or [],
+            'definition_of_done': self.definition_of_done_json or [],
+            'planning_notes': self.planning_notes,
             'metadata': self.metadata_json or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
