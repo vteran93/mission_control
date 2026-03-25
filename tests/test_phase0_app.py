@@ -11,8 +11,11 @@ def load_app_module():
         if (
             module_name.startswith("autonomous_delivery")
             or module_name.startswith("autonomous_scrum")
+            or module_name.startswith("spec_intake")
             or module_name.startswith("delivery_tracking")
             or module_name.startswith("crew_runtime")
+            or module_name.startswith("operator_control")
+            or module_name.startswith("github_operator")
         ):
             sys.modules.pop(module_name, None)
     return importlib.import_module("app")
@@ -76,6 +79,13 @@ def test_init_db_starts_dispatcher_after_database_bootstrap(configured_app, monk
         assert application is app
         events.append("bootstrap")
 
+    operator_service = app.extensions["operator_control_service"]
+
+    def fake_reload_runtime(application, *, start_dispatcher):
+        assert application is app
+        assert start_dispatcher is False
+        events.append("reload")
+
     runtime = app.extensions["mission_control_runtime"]
 
     def fake_start_background_dispatcher(application):
@@ -84,11 +94,12 @@ def test_init_db_starts_dispatcher_after_database_bootstrap(configured_app, monk
         return True
 
     monkeypatch.setattr(db_bootstrap, "initialize_database", fake_initialize_database)
+    monkeypatch.setattr(operator_service, "reload_runtime", fake_reload_runtime)
     monkeypatch.setattr(runtime, "start_background_dispatcher", fake_start_background_dispatcher)
 
     app_module.init_db(app)
 
-    assert events == ["bootstrap", "dispatcher"]
+    assert events == ["bootstrap", "reload", "dispatcher"]
 
 
 def test_send_agent_message_writes_to_database_queue(configured_app):

@@ -14,6 +14,8 @@ def load_app_stack():
             or module_name.startswith("delivery_tracking")
             or module_name.startswith("autonomous_scrum")
             or module_name.startswith("crew_runtime")
+            or module_name.startswith("operator_control")
+            or module_name.startswith("github_operator")
         ):
             sys.modules.pop(module_name, None)
     database_module = importlib.import_module("database")

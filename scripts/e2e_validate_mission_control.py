@@ -17,16 +17,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -593,6 +596,222 @@ def write_phase5_specs(fixtures_dir: Path) -> tuple[Path, Path]:
     return phase5_requirements, phase5_roadmap
 
 
+def write_phase6_specs(fixtures_dir: Path) -> tuple[Path, Path]:
+    phase6_requirements = fixtures_dir / "phase6_requirements.md"
+    phase6_roadmap = fixtures_dir / "phase6_roadmap.md"
+
+    phase6_requirements.write_text(
+        textwrap.dedent(
+            """
+            # Mission Control Phase 6
+            ## Objetivo
+            - Debe sincronizar governance de GitHub con GitHub App
+            - Debe exponer observabilidad profunda por blueprint y PR
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    phase6_roadmap.write_text(
+        textwrap.dedent(
+            """
+            # Roadmap
+            **Proyecto**: Mission Control Phase 6
+
+            ## EP-6 · Operator GitHub Control
+            > Objetivo: sincronizar PRs y branch protection desde el panel operador.
+
+            ### TICKET-601 · Sincronizar branch protection
+            ```
+            Tipo: feature
+            Prioridad: P0
+            Est.: 2 h
+            Deps.: ninguna
+            ```
+
+            **Descripción**
+            Sincronizar branches protegidas con GitHub App.
+
+            **Criterios de aceptación**
+            - [ ] Se sincroniza protection de main y release
+
+            ### TICKET-602 · Exponer dashboard profundo por blueprint
+            ```
+            Tipo: feature
+            Prioridad: P1
+            Est.: 2 h
+            Deps.: TICKET-601
+            ```
+
+            **Descripción**
+            Mostrar PRs, runs, feedback y retrospective asociados al blueprint.
+
+            **Criterios de aceptación**
+            - [ ] El dashboard muestra PRs del blueprint
+            - [ ] El dashboard muestra feedback y retrospective
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    return phase6_requirements, phase6_roadmap
+
+
+def generate_github_app_private_key_pem() -> str:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+
+class FakeGitHubServer:
+    def __init__(self) -> None:
+        self.state: dict[str, Any] = {
+            "blueprint_id": None,
+            "installation_token_requests": [],
+            "branch_protection_requests": [],
+            "pull_request_fetches": [],
+        }
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._build_handler())
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    @property
+    def api_url(self) -> str:
+        host, port = self._server.server_address
+        return f"http://{host}:{port}/api/v3"
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
+
+    def _build_handler(self):
+        server_state = self.state
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+                return
+
+            def _read_json(self) -> dict[str, Any]:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                if content_length <= 0:
+                    return {}
+                raw = self.rfile.read(content_length).decode("utf-8")
+                return json.loads(raw) if raw else {}
+
+            def _send_json(self, status_code: int, payload: Any) -> None:
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(status_code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path == "/api/v3/app/installations/98765/access_tokens":
+                    server_state["installation_token_requests"].append(
+                        {
+                            "authorization": self.headers.get("Authorization"),
+                            "accept": self.headers.get("Accept"),
+                        }
+                    )
+                    self._send_json(
+                        201,
+                        {
+                            "token": "ghs_e2e_installation_token",
+                            "expires_at": "2030-01-01T00:00:00Z",
+                        },
+                    )
+                    return
+
+                self._send_json(404, {"error": f"Unsupported POST path: {parsed.path}"})
+
+            def do_PUT(self) -> None:  # noqa: N802
+                parsed = urllib.parse.urlparse(self.path)
+                match = re.fullmatch(
+                    r"/api/v3/repos/acme/mission-control/branches/([^/]+)/protection",
+                    parsed.path,
+                )
+                if match is None:
+                    self._send_json(404, {"error": f"Unsupported PUT path: {parsed.path}"})
+                    return
+
+                branch = match.group(1)
+                payload = self._read_json()
+                server_state["branch_protection_requests"].append(
+                    {
+                        "branch": branch,
+                        "authorization": self.headers.get("Authorization"),
+                        "payload": payload,
+                    }
+                )
+                self._send_json(
+                    200,
+                    {
+                        "branch": branch,
+                        "enforced": True,
+                        "rules": payload,
+                    },
+                )
+
+            def do_GET(self) -> None:  # noqa: N802
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path == "/api/v3/rate_limit":
+                    self._send_json(200, {"rate": {"remaining": 5000}})
+                    return
+
+                if parsed.path == "/api/v3/repos/acme/mission-control/pulls":
+                    server_state["pull_request_fetches"].append(
+                        {
+                            "authorization": self.headers.get("Authorization"),
+                            "query": urllib.parse.parse_qs(parsed.query),
+                        }
+                    )
+                    blueprint_id = server_state.get("blueprint_id") or 999999
+                    self._send_json(
+                        200,
+                        [
+                            {
+                                "number": 17,
+                                "title": "Blueprint release candidate",
+                                "state": "open",
+                                "html_url": "https://github.local/acme/mission-control/pull/17",
+                                "updated_at": "2026-03-25T10:00:00Z",
+                                "merged_at": None,
+                                "draft": False,
+                                "user": {"login": "mission-control"},
+                                "head": {"ref": f"mission-control/blueprint-{blueprint_id}-plan-1-rc"},
+                                "base": {"ref": "main"},
+                            },
+                            {
+                                "number": 29,
+                                "title": "Unrelated maintenance",
+                                "state": "closed",
+                                "html_url": "https://github.local/acme/mission-control/pull/29",
+                                "updated_at": "2026-03-24T10:00:00Z",
+                                "merged_at": "2026-03-24T11:00:00Z",
+                                "draft": False,
+                                "user": {"login": "other-user"},
+                                "head": {"ref": "chore/maintenance"},
+                                "base": {"ref": "main"},
+                            },
+                        ],
+                    )
+                    return
+
+                self._send_json(404, {"error": f"Unsupported GET path: {parsed.path}"})
+
+        return Handler
+
+
 def import_blueprint(base_url: str, requirements_path: Path, roadmap_path: Path) -> dict[str, Any]:
     status, payload = api_call(
         base_url,
@@ -1027,6 +1246,238 @@ def validate_phase5_semiautomatic_delivery(
     }
 
 
+def validate_phase6_operator_control(
+    base_url: str,
+    fixtures_dir: Path,
+    responses_path: Path,
+    github_api_url: str,
+    github_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate operator control, GitHub sync, and blueprint observability over the public HTTP API."""
+
+    status, dashboard = api_call(base_url, "GET", "/api/operator/dashboard")
+    if status != 200:
+        raise RuntimeError(f"Cannot read operator dashboard: status={status}, body={dashboard}")
+    if "providers" not in dashboard or "settings" not in dashboard or "overview" not in dashboard:
+        raise RuntimeError(f"Operator dashboard payload is incomplete: {dashboard}")
+
+    private_key_pem = generate_github_app_private_key_pem()
+    status, updated = api_call(
+        base_url,
+        "PUT",
+        "/api/operator/settings",
+        {
+            "ollama": {
+                "base_url": "http://operator-ollama:11434",
+                "default_model": "qwen2.5-coder:operator",
+            },
+            "bedrock": {
+                "region": "us-east-1",
+                "planner_model": "anthropic.claude-3-7-sonnet",
+                "reviewer_model": "anthropic.claude-3-5-sonnet",
+            },
+            "github": {
+                "api_url": github_api_url,
+                "repository": "acme/mission-control",
+                "default_base_branch": "main",
+                "protected_branches": ["main", "release"],
+                "required_approving_review_count": 2,
+                "app_id": 12345,
+                "app_installation_id": 98765,
+                "app_private_key": private_key_pem,
+            },
+        },
+    )
+    if status != 200:
+        raise RuntimeError(f"Cannot update operator settings: status={status}, body={updated}")
+    if updated["settings"]["ollama"]["base_url"] != "http://operator-ollama:11434":
+        raise RuntimeError(f"Operator dashboard did not apply Ollama override: {updated}")
+    if updated["settings"]["github"]["protected_branches"] != ["main", "release"]:
+        raise RuntimeError(f"Operator dashboard did not persist GitHub branch policy: {updated}")
+    if updated["settings"]["github"]["auth_mode"] != "app":
+        raise RuntimeError(f"Operator dashboard did not switch GitHub auth mode to app: {updated}")
+    if updated["providers"]["github"]["ok"] is not True:
+        raise RuntimeError(f"GitHub provider should be healthy in app mode: {updated}")
+    if updated["runtime_config_applied"] is not True:
+        raise RuntimeError(f"Runtime did not reload operator settings: {updated}")
+
+    status, settings = api_call(base_url, "GET", "/api/operator/settings")
+    if status != 200:
+        raise RuntimeError(f"Cannot read operator settings: status={status}, body={settings}")
+    if settings["github"]["token_configured"] is not False:
+        raise RuntimeError(f"Operator settings should keep GitHub token cleared in E2E: {settings}")
+    if settings["github"]["app_private_key_configured"] is not True:
+        raise RuntimeError(f"Operator settings should persist GitHub App key: {settings}")
+
+    status, github_dashboard = api_call(base_url, "GET", "/api/operator/github/dashboard")
+    if status != 200:
+        raise RuntimeError(f"Cannot read operator GitHub dashboard: status={status}, body={github_dashboard}")
+    if github_dashboard["auth_mode"] != "app":
+        raise RuntimeError(f"GitHub dashboard should expose app auth mode: {github_dashboard}")
+    if github_dashboard["required_approving_review_count"] != 2:
+        raise RuntimeError(f"GitHub dashboard lost review settings: {github_dashboard}")
+
+    requirements_path, roadmap_path = write_phase6_specs(fixtures_dir)
+    set_fake_crewai_outputs(
+        responses_path,
+        [approved_review("Planning crew aprueba el plan de observabilidad GitHub.")],
+    )
+    blueprint = import_blueprint(base_url, requirements_path, roadmap_path)
+    blueprint_id = blueprint["id"]
+    github_state["blueprint_id"] = blueprint_id
+
+    status, feedback = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/feedback",
+        {
+            "stage_name": "review",
+            "status": "approved",
+            "source": "operator",
+            "feedback_text": "PR visibility aprobada para merge.",
+        },
+    )
+    if status != 201:
+        raise RuntimeError(f"Cannot persist phase 6 feedback: status={status}, body={feedback}")
+
+    status, retrospective = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/retrospective-items",
+        {
+            "category": "win",
+            "summary": "Timeline GitHub visible por blueprint.",
+            "action_item": "Mantener sync de PRs en dashboard.",
+            "owner": "Jarvis-PM",
+        },
+    )
+    if status != 201:
+        raise RuntimeError(f"Cannot persist phase 6 retrospective item: status={status}, body={retrospective}")
+
+    status, agent_run = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/agent-runs",
+        {
+            "agent_name": "github_sync_agent",
+            "agent_role": "release",
+            "provider": "github",
+            "model": "api",
+            "status": "completed",
+            "input_summary": "Sync pull requests",
+            "output_summary": "Pull requests fetched",
+            "completed": True,
+        },
+    )
+    if status != 201:
+        raise RuntimeError(f"Cannot persist phase 6 agent run: status={status}, body={agent_run}")
+
+    status, plan = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/scrum-plan",
+        {"sprint_capacity": 6},
+    )
+    if status != 201:
+        raise RuntimeError(f"Cannot create phase 6 scrum plan: status={status}, body={plan}")
+    if plan["approval_status"] != "approved":
+        raise RuntimeError(f"Phase 6 plan did not reach approved state: {plan}")
+
+    status, branch_sync = api_call(base_url, "POST", "/api/operator/github/sync-branches", {})
+    if status != 200:
+        raise RuntimeError(f"Cannot sync protected branches: status={status}, body={branch_sync}")
+    if branch_sync["branch_count"] != 2:
+        raise RuntimeError(f"Unexpected protected branch sync result: {branch_sync}")
+    if len(github_state["installation_token_requests"]) != 1:
+        raise RuntimeError(f"GitHub App token exchange did not happen exactly once: {github_state}")
+    if len(github_state["branch_protection_requests"]) != 2:
+        raise RuntimeError(f"Expected two branch protection requests: {github_state}")
+
+    branch_payloads = {
+        item["branch"]: item["payload"] for item in github_state["branch_protection_requests"]
+    }
+    for branch in ("main", "release"):
+        payload = branch_payloads.get(branch)
+        if payload is None:
+            raise RuntimeError(f"Missing branch protection payload for {branch}: {github_state}")
+        if payload["required_pull_request_reviews"]["required_approving_review_count"] != 2:
+            raise RuntimeError(f"Unexpected branch protection review policy: {payload}")
+
+    status, pull_request_sync = api_call(
+        base_url,
+        "POST",
+        "/api/operator/github/pull-requests/sync",
+        {"state": "all", "per_page": 20},
+    )
+    if status != 200:
+        raise RuntimeError(f"Cannot sync GitHub pull requests: status={status}, body={pull_request_sync}")
+    if pull_request_sync["pull_request_count"] != 2:
+        raise RuntimeError(f"Unexpected PR sync result: {pull_request_sync}")
+    if len(github_state["installation_token_requests"]) != 1:
+        raise RuntimeError(f"GitHub App token should have been cached after branch sync: {github_state}")
+    if len(github_state["pull_request_fetches"]) != 1:
+        raise RuntimeError(f"Expected one PR fetch against fake GitHub: {github_state}")
+
+    status, timeline = api_call(base_url, "GET", "/api/operator/github/timeline")
+    if status != 200:
+        raise RuntimeError(f"Cannot read operator GitHub timeline: status={status}, body={timeline}")
+    if len(timeline["events"]) < 4:
+        raise RuntimeError(f"Timeline should contain branch + PR sync events: {timeline}")
+
+    status, blueprint_timeline = api_call(
+        base_url,
+        "GET",
+        f"/api/operator/github/timeline?blueprint_id={blueprint_id}",
+    )
+    if status != 200:
+        raise RuntimeError(f"Cannot read blueprint GitHub timeline: status={status}, body={blueprint_timeline}")
+    if len(blueprint_timeline["events"]) != 1:
+        raise RuntimeError(f"Expected a single blueprint-linked PR event: {blueprint_timeline}")
+
+    status, blueprint_dashboard = api_call(
+        base_url,
+        "GET",
+        f"/api/blueprints/{blueprint_id}/operator-dashboard",
+    )
+    if status != 200:
+        raise RuntimeError(
+            f"Cannot read blueprint operator dashboard: status={status}, body={blueprint_dashboard}"
+        )
+    if blueprint_dashboard["report"]["counts"]["github_sync_events"] != 1:
+        raise RuntimeError(f"Blueprint dashboard lost GitHub sync event linkage: {blueprint_dashboard}")
+    if not any(
+        item.get("source") == "operator" and item.get("stage_name") == "review"
+        for item in blueprint_dashboard["recent_feedback"]
+    ):
+        raise RuntimeError(f"Blueprint dashboard lost operator review feedback: {blueprint_dashboard}")
+    if len(blueprint_dashboard["retrospective_items"]) != 1:
+        raise RuntimeError(f"Blueprint dashboard lost retrospective item: {blueprint_dashboard}")
+    if len(blueprint_dashboard["recent_agent_runs"]) < 1:
+        raise RuntimeError(f"Blueprint dashboard should expose agent runs: {blueprint_dashboard}")
+    if blueprint_dashboard["latest_plan"] is None:
+        raise RuntimeError(f"Blueprint dashboard should expose latest scrum plan: {blueprint_dashboard}")
+    if [item["number"] for item in blueprint_dashboard["github"]["pull_requests"]] != [17]:
+        raise RuntimeError(f"Blueprint dashboard should expose the linked PR only: {blueprint_dashboard}")
+
+    return {
+        "blueprint_id": blueprint_id,
+        "repository": settings["github"]["repository"],
+        "default_base_branch": settings["github"]["default_base_branch"],
+        "protected_branches": settings["github"]["protected_branches"],
+        "auth_mode": settings["github"]["auth_mode"],
+        "runtime_config_applied": updated["runtime_config_applied"],
+        "branch_sync_count": branch_sync["branch_count"],
+        "pull_request_sync_count": pull_request_sync["pull_request_count"],
+        "github_timeline_event_count": len(timeline["events"]),
+        "blueprint_pull_request_count": len(blueprint_dashboard["github"]["pull_requests"]),
+        "blueprint_feedback_count": len(blueprint_dashboard["recent_feedback"]),
+        "blueprint_retrospective_count": len(blueprint_dashboard["retrospective_items"]),
+        "blueprint_agent_run_count": len(blueprint_dashboard["recent_agent_runs"]),
+        "github_app_token_exchanges": len(github_state["installation_token_requests"]),
+        "provider_names": sorted(updated["providers"].keys()),
+    }
+
+
 def validate_langgraph_wiring(allow_missing: bool) -> dict[str, Any]:
     """Validate orchestrator package and LangGraph integration."""
 
@@ -1161,6 +1612,7 @@ def main() -> int:
         responses_path = temp_root / "fake_crewai_responses.json"
         fixtures_dir = temp_root / "fixtures"
         phase5_workspace = temp_root / "phase5_workspace"
+        fake_github = FakeGitHubServer()
         create_fake_crewai_package(fake_crewai_root, responses_path)
         env = prepare_e2e_env(
             repo_root,
@@ -1201,6 +1653,13 @@ def main() -> int:
                 responses_path,
                 phase5_workspace,
             )
+            phase6_result = validate_phase6_operator_control(
+                base_url,
+                fixtures_dir,
+                responses_path,
+                fake_github.api_url,
+                fake_github.state,
+            )
             langgraph_result = validate_langgraph_wiring(args.allow_missing_langgraph)
 
             print(
@@ -1211,6 +1670,7 @@ def main() -> int:
                         "three_agent_flow": api_result,
                         "phase4_scrum_flow": phase4_result,
                         "phase5_semiautomatic_delivery": phase5_result,
+                        "phase6_operator_control": phase6_result,
                         "orchestrator_validation": langgraph_result,
                     },
                     indent=2,
@@ -1225,6 +1685,7 @@ def main() -> int:
                     server.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     server.kill()
+            fake_github.close()
 
 
 if __name__ == "__main__":

@@ -142,3 +142,33 @@ Cuando se ejecuta el delivery, Mission Control persiste la politica en:
 - `.mission_control/guardrails/architecture_guardrails.json`
 
 La politica limita escrituras al set exacto de archivos seleccionados por el plan y a roots internos de Mission Control como `.mission_control/reports/` y `.mission_control/releases/`. El toolkit del runtime tambien respeta esta politica para `workspace_write_file` y bloquea patrones de shell peligrosos en `workspace_run_unix_command`.
+
+## Operator Control
+
+Endpoints de Fase 6:
+
+```bash
+GET /api/operator/dashboard
+GET /api/operator/settings
+PUT /api/operator/settings
+GET /api/operator/github/dashboard
+POST /api/operator/github/sync-branches
+POST /api/operator/github/pull-requests/sync
+GET /api/operator/github/timeline
+GET /api/blueprints/<id>/operator-dashboard
+```
+
+El dashboard principal `/` ya expone un panel operador para:
+
+- configurar overrides de `Ollama`, `Bedrock` y GitHub
+- registrar `GITHUB_TOKEN` o credenciales de GitHub App
+- persistir repositorio, branch base, protected branches y politica de reviews
+- disparar sync de protected branches y pull requests contra GitHub
+- ver timeline GitHub y dashboard profundo por blueprint con runs, feedback, retrospective y PRs
+
+El E2E `scripts/e2e_validate_mission_control.py` ahora valida tambien:
+
+- GitHub App auth
+- sync de protected branches
+- sync de pull requests
+- vinculacion de PRs al blueprint dashboard

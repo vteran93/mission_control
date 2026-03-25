@@ -6,6 +6,7 @@ let countdown = 5;
 let currentTaskId = null; // For modal
 let currentSprintFilter = ''; // For sprint filtering
 let allTasks = []; // Cache all tasks
+let currentBlueprintId = null;
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -57,9 +58,57 @@ async function fetchDashboard() {
         await fetchTasks();
         fetchNotifications();
         fetchDocuments();
+        fetchOperatorDashboard();
+        await fetchBlueprints();
         
     } catch (error) {
         console.error('❌ Error fetching dashboard:', error);
+    }
+}
+
+async function fetchOperatorDashboard() {
+    try {
+        const response = await fetch(`${API_BASE}/operator/dashboard`);
+        const data = await response.json();
+        renderOperatorDashboard(data);
+    } catch (error) {
+        console.error('Error fetching operator dashboard:', error);
+    }
+}
+
+async function fetchBlueprints() {
+    try {
+        const response = await fetch(`${API_BASE}/blueprints`);
+        const blueprints = await response.json();
+        populateBlueprintSelect(blueprints);
+        if (blueprints.length > 0) {
+            const selectedId = currentBlueprintId || String(blueprints[0].id);
+            currentBlueprintId = selectedId;
+            const select = document.getElementById('blueprint-select');
+            if (select) {
+                select.value = selectedId;
+            }
+            fetchBlueprintDashboard(selectedId);
+        } else {
+            renderBlueprintDashboard(null);
+        }
+    } catch (error) {
+        console.error('Error fetching blueprints:', error);
+    }
+}
+
+async function fetchBlueprintDashboard(blueprintId) {
+    if (!blueprintId) {
+        renderBlueprintDashboard(null);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/blueprints/${blueprintId}/operator-dashboard`);
+        const data = await response.json();
+        renderBlueprintDashboard(data);
+    } catch (error) {
+        console.error('Error fetching blueprint dashboard:', error);
     }
 }
 
@@ -281,6 +330,283 @@ function renderDocuments(documents) {
     `).join('');
 }
 
+function renderOperatorDashboard(data) {
+    renderOperatorOverview(data.overview || {});
+    renderProviderHealth(data.providers || {});
+    populateOperatorSettings(data.settings || {});
+    fetchGitHubTimeline();
+
+    const runtimeState = document.getElementById('operator-runtime-state');
+    if (runtimeState) {
+        const applied = data.runtime_config_applied === true;
+        runtimeState.textContent = applied ? 'Runtime alineado' : 'Runtime desalineado';
+        runtimeState.className = `runtime-state-pill ${applied ? 'ok' : 'warn'}`;
+    }
+}
+
+async function fetchGitHubTimeline() {
+    try {
+        const [timelineResponse, githubDashboardResponse] = await Promise.all([
+            fetch(`${API_BASE}/operator/github/timeline?limit=20`),
+            fetch(`${API_BASE}/operator/github/dashboard`)
+        ]);
+        const timeline = await timelineResponse.json();
+        const githubDashboard = await githubDashboardResponse.json();
+        renderGitHubTimeline(timeline.events || []);
+        renderGitHubPullRequests(
+            (timeline.events || []).filter(event => event.pull_request_number)
+        );
+        populateGitHubControls(githubDashboard);
+    } catch (error) {
+        console.error('Error fetching GitHub timeline:', error);
+    }
+}
+
+function renderOperatorOverview(overview) {
+    const container = document.getElementById('operator-overview');
+    if (!container) return;
+
+    const items = [
+        ['Blueprints', overview.blueprints ?? 0],
+        ['Scrum plans', overview.scrum_plans ?? 0],
+        ['Sprints activas', overview.active_sprints ?? 0],
+        ['Sprints bloqueadas', overview.blocked_sprints ?? 0],
+        ['Agent runs', overview.agent_runs ?? 0],
+        ['Artifacts', overview.artifacts ?? 0],
+        ['Queued messages', overview.queued_messages ?? 0]
+    ];
+
+    container.innerHTML = items.map(([label, value]) => `
+        <div class="operator-overview-card">
+            <span class="operator-overview-value">${value}</span>
+            <span class="operator-overview-label">${label}</span>
+        </div>
+    `).join('');
+}
+
+function renderProviderHealth(providers) {
+    const container = document.getElementById('provider-health-grid');
+    if (!container) return;
+
+    container.innerHTML = Object.entries(providers).map(([name, provider]) => `
+        <article class="provider-card ${provider.ok ? 'provider-ok' : 'provider-issue'}">
+            <div class="provider-card-header">
+                <strong>${escapeHtml(name)}</strong>
+                <span>${provider.ok ? 'OK' : (provider.configured ? 'ISSUE' : 'PENDING')}</span>
+            </div>
+            <p>${escapeHtml(provider.detail || 'Sin detalle')}</p>
+        </article>
+    `).join('');
+}
+
+function populateOperatorSettings(settings) {
+    const ollama = settings.ollama || {};
+    const bedrock = settings.bedrock || {};
+    const github = settings.github || {};
+
+    const fieldMap = {
+        'operator-ollama-base-url': ollama.base_url || '',
+        'operator-ollama-default-model': ollama.default_model || '',
+        'operator-bedrock-region': bedrock.region || '',
+        'operator-bedrock-planner-model': bedrock.planner_model || '',
+        'operator-bedrock-reviewer-model': bedrock.reviewer_model || '',
+        'operator-github-api-url': github.api_url || '',
+        'operator-github-auth-mode': github.auth_mode || 'none',
+        'operator-github-repository': github.repository || '',
+        'operator-github-base-branch': github.default_base_branch || '',
+        'operator-github-protected-branches': (github.protected_branches || []).join(', '),
+        'operator-github-approvals': github.required_approving_review_count ?? 1,
+        'operator-github-app-id': github.app_id || '',
+        'operator-github-installation-id': github.app_installation_id || ''
+    };
+
+    Object.entries(fieldMap).forEach(([fieldId, value]) => {
+        const field = document.getElementById(fieldId);
+        if (field) field.value = value;
+    });
+
+    const tokenField = document.getElementById('operator-github-token');
+    if (tokenField) tokenField.value = '';
+    const appKeyField = document.getElementById('operator-github-app-private-key');
+    if (appKeyField) appKeyField.value = '';
+
+    const tokenHint = document.getElementById('operator-github-token-hint');
+    if (tokenHint) {
+        const tokenText = github.token_configured ? 'Token configurado' : 'Token no configurado';
+        const appText = github.app_private_key_configured ? 'App key configurada' : 'App key no configurada';
+        tokenHint.textContent = `${tokenText} · ${appText}`;
+    }
+}
+
+function populateGitHubControls(githubDashboard) {
+    const authModeField = document.getElementById('operator-github-auth-mode');
+    if (authModeField) {
+        authModeField.value = githubDashboard.auth_mode || 'none';
+    }
+}
+
+function renderGitHubTimeline(events) {
+    const container = document.getElementById('github-timeline-list');
+    if (!container) return;
+    if (events.length === 0) {
+        container.innerHTML = '<p class="empty-state">No hay eventos GitHub sincronizados</p>';
+        return;
+    }
+
+    container.innerHTML = events.map(event => `
+        <article class="feed-item">
+            <div class="feed-item-header">
+                <strong>${escapeHtml(event.event_type)}</strong>
+                <span>${escapeHtml(event.status)}</span>
+            </div>
+            <p>${escapeHtml(event.summary || '')}</p>
+            <small>${escapeHtml(event.branch_name || event.repository || '')} · ${formatDate(event.created_at)}</small>
+        </article>
+    `).join('');
+}
+
+function renderGitHubPullRequests(events) {
+    const container = document.getElementById('github-pr-list');
+    if (!container) return;
+    const latestByPr = new Map();
+    events.forEach(event => {
+        if (!latestByPr.has(event.pull_request_number)) {
+            latestByPr.set(event.pull_request_number, event);
+        }
+    });
+    const items = Array.from(latestByPr.values());
+    if (items.length === 0) {
+        container.innerHTML = '<p class="empty-state">No hay pull requests sincronizados</p>';
+        return;
+    }
+    container.innerHTML = items.map(event => {
+        const payload = event.payload || {};
+        const url = payload.html_url || '#';
+        return `
+            <article class="feed-item">
+                <div class="feed-item-header">
+                    <strong>PR #${event.pull_request_number}</strong>
+                    <span>${escapeHtml(payload.state || 'unknown')}</span>
+                </div>
+                <p>${escapeHtml(payload.title || '')}</p>
+                <small>${escapeHtml(payload.head_ref || '')} → ${escapeHtml(payload.base_ref || '')}</small>
+                <a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Abrir PR</a>
+            </article>
+        `;
+    }).join('');
+}
+
+function populateBlueprintSelect(blueprints) {
+    const select = document.getElementById('blueprint-select');
+    if (!select) return;
+    if (blueprints.length === 0) {
+        select.innerHTML = '<option value="">Sin blueprints</option>';
+        return;
+    }
+
+    select.innerHTML = blueprints.map(blueprint => `
+        <option value="${blueprint.id}">${escapeHtml(blueprint.project_name)} · #${blueprint.id}</option>
+    `).join('');
+}
+
+function renderBlueprintDashboard(payload) {
+    const overview = document.getElementById('blueprint-overview-grid');
+    const feedbackList = document.getElementById('blueprint-feedback-list');
+    const runsList = document.getElementById('blueprint-runs-list');
+    const prList = document.getElementById('blueprint-pr-list');
+
+    if (!overview || !feedbackList || !runsList || !prList) return;
+    if (!payload) {
+        overview.innerHTML = '<p class="empty-state">No hay blueprint seleccionado</p>';
+        feedbackList.innerHTML = '';
+        runsList.innerHTML = '';
+        prList.innerHTML = '';
+        return;
+    }
+
+    const report = payload.report || {};
+    const counts = (report.counts || {});
+    const delivery = (report.delivery_metrics || {});
+    const items = [
+        ['Requirements', counts.requirements ?? 0],
+        ['Tasks', counts.delivery_tasks ?? 0],
+        ['Scrum plans', counts.scrum_plans ?? 0],
+        ['Agent runs', counts.agent_runs ?? 0],
+        ['Artifacts', counts.artifacts ?? 0],
+        ['Retry rate', delivery.retry_rate ?? 0]
+    ];
+    overview.innerHTML = items.map(([label, value]) => `
+        <div class="operator-overview-card">
+            <span class="operator-overview-value">${value}</span>
+            <span class="operator-overview-label">${label}</span>
+        </div>
+    `).join('');
+
+    const feedbackItems = [
+        ...(payload.recent_feedback || []).map(item => ({
+            title: `${item.stage_name} · ${item.status}`,
+            body: item.feedback_text,
+            meta: formatDate(item.created_at)
+        })),
+        ...(payload.retrospective_items || []).map(item => ({
+            title: `${item.category} · ${item.status}`,
+            body: item.summary,
+            meta: formatDate(item.created_at)
+        }))
+    ].slice(0, 10);
+
+    feedbackList.innerHTML = feedbackItems.length
+        ? feedbackItems.map(item => `
+            <article class="feed-item">
+                <div class="feed-item-header">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    <span>${escapeHtml(item.meta)}</span>
+                </div>
+                <p>${escapeHtml(item.body || '')}</p>
+            </article>
+        `).join('')
+        : '<p class="empty-state">Sin feedback ni retrospective todavía</p>';
+
+    const runItems = [
+        ...(payload.recent_agent_runs || []).map(item => ({
+            title: `${item.agent_name} · ${item.status}`,
+            body: item.output_summary || item.input_summary || '',
+            meta: formatDate(item.started_at)
+        })),
+        ...(payload.recent_artifacts || []).map(item => ({
+            title: `${item.artifact_type} · ${item.name}`,
+            body: item.uri,
+            meta: formatDate(item.created_at)
+        }))
+    ].slice(0, 10);
+
+    runsList.innerHTML = runItems.length
+        ? runItems.map(item => `
+            <article class="feed-item">
+                <div class="feed-item-header">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    <span>${escapeHtml(item.meta)}</span>
+                </div>
+                <p>${escapeHtml(item.body || '')}</p>
+            </article>
+        `).join('')
+        : '<p class="empty-state">Sin runs ni artifacts todavía</p>';
+
+    const pullRequests = payload.github?.pull_requests || [];
+    prList.innerHTML = pullRequests.length
+        ? pullRequests.map(pr => `
+            <article class="feed-item">
+                <div class="feed-item-header">
+                    <strong>PR #${pr.number}</strong>
+                    <span>${escapeHtml(pr.state || 'unknown')}</span>
+                </div>
+                <p>${escapeHtml(pr.title || '')}</p>
+                <small>${escapeHtml(pr.head_ref || '')} → ${escapeHtml(pr.base_ref || '')}</small>
+            </article>
+        `).join('')
+        : '<p class="empty-state">Este blueprint no tiene PRs sincronizados</p>';
+}
+
 function getDocIcon(type) {
     const icons = {
         'code': '💻',
@@ -443,6 +769,57 @@ function filterBySprint() {
     fetchTasks();
 }
 
+function filterByBlueprint() {
+    const blueprintSelect = document.getElementById('blueprint-select');
+    currentBlueprintId = blueprintSelect.value;
+    fetchBlueprintDashboard(currentBlueprintId);
+}
+
+async function syncGitHubBranches() {
+    const statusDiv = document.getElementById('operator-settings-status');
+    statusDiv.innerHTML = '<p class="loading">Sincronizando protected branches...</p>';
+    try {
+        const response = await fetch(`${API_BASE}/operator/github/sync-branches`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dry_run: false })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || 'No se pudieron sincronizar las ramas');
+        }
+        statusDiv.innerHTML = `<p class="success">✅ ${payload.branch_count} ramas sincronizadas</p>`;
+        fetchGitHubTimeline();
+    } catch (error) {
+        console.error('Error syncing protected branches:', error);
+        statusDiv.innerHTML = `<p class="error">❌ ${escapeHtml(error.message)}</p>`;
+    }
+}
+
+async function syncGitHubPullRequests() {
+    const statusDiv = document.getElementById('operator-settings-status');
+    statusDiv.innerHTML = '<p class="loading">Sincronizando pull requests...</p>';
+    try {
+        const response = await fetch(`${API_BASE}/operator/github/pull-requests/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: 'all', per_page: 20 })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || 'No se pudieron sincronizar los pull requests');
+        }
+        statusDiv.innerHTML = `<p class="success">✅ ${payload.pull_request_count} pull requests sincronizados</p>`;
+        fetchGitHubTimeline();
+        if (currentBlueprintId) {
+            fetchBlueprintDashboard(currentBlueprintId);
+        }
+    } catch (error) {
+        console.error('Error syncing pull requests:', error);
+        statusDiv.innerHTML = `<p class="error">❌ ${escapeHtml(error.message)}</p>`;
+    }
+}
+
 // ============================================
 // DAEMON LOGS
 // ============================================
@@ -538,6 +915,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDiv.innerHTML = '<p class="error">❌ Error al enviar mensaje</p>';
             }
         });
+    }
+
+    const operatorForm = document.getElementById('operator-settings-form');
+    if (operatorForm) {
+        operatorForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const statusDiv = document.getElementById('operator-settings-status');
+            statusDiv.innerHTML = '<p class="loading">Guardando configuración...</p>';
+
+            const payload = {
+                ollama: {
+                    base_url: document.getElementById('operator-ollama-base-url').value,
+                    default_model: document.getElementById('operator-ollama-default-model').value
+                },
+                bedrock: {
+                    region: document.getElementById('operator-bedrock-region').value,
+                    planner_model: document.getElementById('operator-bedrock-planner-model').value,
+                    reviewer_model: document.getElementById('operator-bedrock-reviewer-model').value
+                },
+                github: {
+                    api_url: document.getElementById('operator-github-api-url').value,
+                    repository: document.getElementById('operator-github-repository').value,
+                    default_base_branch: document.getElementById('operator-github-base-branch').value,
+                    protected_branches: document.getElementById('operator-github-protected-branches').value,
+                    required_approving_review_count: parseInt(document.getElementById('operator-github-approvals').value || '1', 10),
+                    app_id: document.getElementById('operator-github-app-id').value,
+                    app_installation_id: document.getElementById('operator-github-installation-id').value,
+                    token: document.getElementById('operator-github-token').value,
+                    app_private_key: document.getElementById('operator-github-app-private-key').value
+                }
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}/operator/settings`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result.error || 'No se pudo guardar la configuración');
+                }
+
+                renderOperatorDashboard(result);
+                statusDiv.innerHTML = '<p class="success">✅ Configuración actualizada</p>';
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 3000);
+            } catch (error) {
+                console.error('Error saving operator settings:', error);
+                statusDiv.innerHTML = `<p class="error">❌ ${escapeHtml(error.message)}</p>`;
+            }
+        });
+    }
+
+    const githubBranchesBtn = document.getElementById('github-sync-branches-btn');
+    if (githubBranchesBtn) {
+        githubBranchesBtn.addEventListener('click', syncGitHubBranches);
+    }
+
+    const githubPrsBtn = document.getElementById('github-sync-prs-btn');
+    if (githubPrsBtn) {
+        githubPrsBtn.addEventListener('click', syncGitHubPullRequests);
+    }
+
+    const blueprintSelect = document.getElementById('blueprint-select');
+    if (blueprintSelect) {
+        blueprintSelect.addEventListener('change', filterByBlueprint);
     }
 });
 

@@ -16,6 +16,121 @@
             <p class="subtitle">Scrum Master: Victor | Auto-refresh: <span id="refresh-countdown">5</span>s</p>
         </header>
 
+        <section class="panel operator-panel">
+            <div class="section-header">
+                <h2>🛰️ Operator Control</h2>
+                <div id="operator-runtime-state" class="runtime-state-pill">Cargando...</div>
+            </div>
+            <div class="operator-layout">
+                <div class="operator-observability">
+                    <div>
+                        <h3>Resumen operativo</h3>
+                        <div id="operator-overview" class="operator-overview-grid"></div>
+                    </div>
+                    <div>
+                        <h3>Health de providers</h3>
+                        <div id="provider-health-grid" class="provider-health-grid"></div>
+                    </div>
+                </div>
+
+                <form id="operator-settings-form" class="operator-settings-form">
+                    <div class="operator-form-grid">
+                        <fieldset class="operator-fieldset">
+                            <legend>Ollama</legend>
+                            <label for="operator-ollama-base-url">Base URL</label>
+                            <input id="operator-ollama-base-url" name="ollama_base_url" type="url" placeholder="http://127.0.0.1:11434">
+                            <label for="operator-ollama-default-model">Modelo default</label>
+                            <input id="operator-ollama-default-model" name="ollama_default_model" type="text" placeholder="qwen2.5-coder:latest">
+                        </fieldset>
+
+                        <fieldset class="operator-fieldset">
+                            <legend>Bedrock</legend>
+                            <label for="operator-bedrock-region">Region</label>
+                            <input id="operator-bedrock-region" name="bedrock_region" type="text" placeholder="us-east-1">
+                            <label for="operator-bedrock-planner-model">Planner model</label>
+                            <input id="operator-bedrock-planner-model" name="bedrock_planner_model" type="text" placeholder="anthropic.claude-3-7-sonnet">
+                            <label for="operator-bedrock-reviewer-model">Reviewer model</label>
+                            <input id="operator-bedrock-reviewer-model" name="bedrock_reviewer_model" type="text" placeholder="anthropic.claude-3-5-sonnet">
+                        </fieldset>
+
+                        <fieldset class="operator-fieldset">
+                            <legend>GitHub</legend>
+                            <label for="operator-github-api-url">API URL</label>
+                            <input id="operator-github-api-url" name="github_api_url" type="url" placeholder="https://api.github.com">
+                            <label for="operator-github-auth-mode">Auth mode</label>
+                            <input id="operator-github-auth-mode" name="github_auth_mode" type="text" disabled>
+                            <label for="operator-github-repository">Repositorio</label>
+                            <input id="operator-github-repository" name="github_repository" type="text" placeholder="owner/repo">
+                            <label for="operator-github-base-branch">Base branch</label>
+                            <input id="operator-github-base-branch" name="github_default_base_branch" type="text" placeholder="main">
+                            <label for="operator-github-protected-branches">Protected branches</label>
+                            <input id="operator-github-protected-branches" name="github_protected_branches" type="text" placeholder="main,release">
+                            <label for="operator-github-approvals">Required approvals</label>
+                            <input id="operator-github-approvals" name="github_required_approving_review_count" type="number" min="0" max="6" placeholder="1">
+                            <label for="operator-github-app-id">GitHub App ID</label>
+                            <input id="operator-github-app-id" name="github_app_id" type="number" min="1" placeholder="123456">
+                            <label for="operator-github-installation-id">Installation ID</label>
+                            <input id="operator-github-installation-id" name="github_app_installation_id" type="number" min="1" placeholder="987654">
+                            <label for="operator-github-token">Token</label>
+                            <input id="operator-github-token" name="github_token" type="password" placeholder="ghp_...">
+                            <label for="operator-github-app-private-key">App private key</label>
+                            <textarea id="operator-github-app-private-key" name="github_app_private_key" rows="5" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                            <small id="operator-github-token-hint" class="field-hint">No configurado</small>
+                        </fieldset>
+                    </div>
+
+                    <div class="operator-actions">
+                        <button type="submit" class="btn-send">Guardar configuración operador</button>
+                        <button type="button" id="github-sync-branches-btn" class="btn-secondary">Sync protected branches</button>
+                        <button type="button" id="github-sync-prs-btn" class="btn-secondary">Sync pull requests</button>
+                        <div id="operator-settings-status" class="send-status"></div>
+                    </div>
+                </form>
+            </div>
+            <div class="operator-github-strip">
+                <div>
+                    <h3>Timeline GitHub</h3>
+                    <div id="github-timeline-list" class="operator-feed-list"></div>
+                </div>
+                <div>
+                    <h3>Pull Requests</h3>
+                    <div id="github-pr-list" class="operator-feed-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-header">
+                <h2>🧭 Blueprint Observability</h2>
+                <div class="sprint-filter">
+                    <label for="blueprint-select">Blueprint:</label>
+                    <select id="blueprint-select"></select>
+                </div>
+            </div>
+            <div class="operator-layout">
+                <div class="operator-observability">
+                    <div>
+                        <h3>Resumen profundo</h3>
+                        <div id="blueprint-overview-grid" class="operator-overview-grid"></div>
+                    </div>
+                    <div>
+                        <h3>Recent feedback & retro</h3>
+                        <div id="blueprint-feedback-list" class="operator-feed-list"></div>
+                    </div>
+                </div>
+                <div class="operator-observability">
+                    <div>
+                        <h3>Agent runs & artifacts</h3>
+                        <div id="blueprint-runs-list" class="operator-feed-list"></div>
+                    </div>
+                    <div>
+                        <h3>Pull requests del blueprint</h3>
+                        <div id="blueprint-pr-list" class="operator-feed-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Agents Status -->
         <section class="panel">
             <h2>🤖 Agentes</h2>

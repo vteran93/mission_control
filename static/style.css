@@ -51,6 +51,205 @@ header h1 {
     font-size: 1.3em;
 }
 
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.runtime-state-pill {
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.8em;
+    background: #21262d;
+    border: 1px solid #30363d;
+}
+
+.runtime-state-pill.ok {
+    color: #56d364;
+    border-color: rgba(86, 211, 100, 0.5);
+}
+
+.runtime-state-pill.warn {
+    color: #f2cc60;
+    border-color: rgba(242, 204, 96, 0.5);
+}
+
+.operator-layout {
+    display: grid;
+    grid-template-columns: 1.1fr 1.2fr;
+    gap: 20px;
+}
+
+.operator-github-strip {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.operator-observability {
+    display: grid;
+    gap: 18px;
+}
+
+.operator-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.operator-overview-card,
+.provider-card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.operator-overview-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #f0f6fc;
+}
+
+.operator-overview-label {
+    display: block;
+    margin-top: 6px;
+    color: #8b949e;
+    font-size: 0.85rem;
+}
+
+.provider-health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.provider-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.provider-card p {
+    color: #8b949e;
+    font-size: 0.9rem;
+}
+
+.provider-card.provider-ok {
+    border-color: rgba(86, 211, 100, 0.4);
+}
+
+.provider-card.provider-issue {
+    border-color: rgba(248, 81, 73, 0.4);
+}
+
+.operator-settings-form {
+    display: grid;
+    gap: 14px;
+}
+
+.operator-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.operator-fieldset {
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 14px;
+    display: grid;
+    gap: 8px;
+}
+
+.operator-fieldset legend {
+    padding: 0 8px;
+    color: #58a6ff;
+}
+
+.operator-fieldset label {
+    font-size: 0.85rem;
+    color: #8b949e;
+}
+
+.operator-fieldset input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    background: #0d1117;
+    color: #f0f6fc;
+}
+
+.operator-fieldset textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    background: #0d1117;
+    color: #f0f6fc;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.operator-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.field-hint {
+    color: #8b949e;
+    font-size: 0.8rem;
+}
+
+.btn-secondary {
+    padding: 10px 14px;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    background: #21262d;
+    color: #f0f6fc;
+    cursor: pointer;
+}
+
+.operator-feed-list {
+    display: grid;
+    gap: 10px;
+}
+
+.feed-item {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.feed-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.feed-item p {
+    color: #c9d1d9;
+    margin-bottom: 8px;
+}
+
+.feed-item small,
+.feed-item a {
+    color: #8b949e;
+}
+
 /* Agents Grid */
 .agents-grid {
     display: grid;
@@ -256,6 +455,12 @@ header h1 {
 
 .document-card:hover {
     border-color: #58a6ff;
+}
+
+@media (max-width: 960px) {
+    .operator-layout {
+        grid-template-columns: 1fr;
+    }
 }
 
 .document-card .title {
@@ -850,5 +1055,10 @@ header h1 {
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
+    }
+
+    .operator-layout,
+    .operator-github-strip {
+        grid-template-columns: 1fr;
     }
 }

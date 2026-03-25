@@ -7,6 +7,7 @@ from database import (
     AgentRunRecord,
     ArtifactRecord,
     DeliveryTaskRecord,
+    GitHubSyncEventRecord,
     HandoffRecord,
     LLMInvocationRecord,
     ProjectBlueprintRecord,
@@ -26,6 +27,7 @@ VALID_AGENT_RUN_STATUSES = {"queued", "planning", "running", "blocked", "complet
 VALID_TASK_EXECUTION_STATUSES = {"queued", "in_progress", "review", "done", "blocked", "failed"}
 VALID_HANDOFF_STATUSES = {"requested", "accepted", "completed", "rejected"}
 VALID_INVOCATION_STATUSES = {"completed", "failed", "cached", "retried"}
+VALID_GITHUB_SYNC_STATUSES = {"completed", "failed", "synced", "fetched", "pending"}
 
 
 class DeliveryTrackingService:
@@ -285,6 +287,41 @@ class DeliveryTrackingService:
         db.session.commit()
         return invocation
 
+    def create_github_sync_event(
+        self,
+        *,
+        repository: str,
+        event_type: str,
+        status: str,
+        summary: str,
+        blueprint_id: int | None = None,
+        action: str | None = None,
+        branch_name: str | None = None,
+        pull_request_number: int | None = None,
+        external_id: str | None = None,
+        payload: dict | None = None,
+    ) -> GitHubSyncEventRecord:
+        if blueprint_id is not None:
+            self._get_blueprint_or_raise(blueprint_id)
+        if status not in VALID_GITHUB_SYNC_STATUSES:
+            raise ValueError(f"Invalid GitHub sync status: {status}")
+
+        event = GitHubSyncEventRecord(
+            project_blueprint_id=blueprint_id,
+            repository=repository,
+            event_type=event_type,
+            action=action,
+            status=status,
+            summary=summary,
+            branch_name=branch_name,
+            pull_request_number=pull_request_number,
+            external_id=external_id,
+            payload_json=payload or {},
+        )
+        db.session.add(event)
+        db.session.commit()
+        return event
+
     def build_timeline(self, blueprint_id: int) -> list[dict[str, object]]:
         blueprint = self._get_blueprint_or_raise(blueprint_id)
         timeline: list[dict[str, object]] = [
@@ -321,6 +358,7 @@ class DeliveryTrackingService:
         append_items(blueprint.llm_invocations, "llm_invocation")
         append_items(blueprint.retrospective_items, "retrospective_item")
         append_items(blueprint.sprint_cycles, "sprint_cycle")
+        append_items(blueprint.github_sync_events, "github_sync_event")
 
         timeline.sort(key=lambda item: item["timestamp"] or "")
         return timeline
@@ -337,11 +375,14 @@ class DeliveryTrackingService:
         handoffs = list(blueprint.handoffs)
         llm_invocations = list(blueprint.llm_invocations)
         artifacts = list(blueprint.artifacts)
+        github_sync_events = list(blueprint.github_sync_events)
 
         sprint_cycle_status_counts = Counter(sprint.status for sprint in sprint_cycles)
         agent_run_status_counts = Counter(run.status for run in agent_runs)
         task_execution_status_counts = Counter(execution.status for execution in task_executions)
         stage_event_status_counts = Counter(event.status for event in stage_events)
+        github_status_counts = Counter(event.status for event in github_sync_events)
+        github_event_counts = Counter(event.event_type for event in github_sync_events)
         provider_breakdown = defaultdict(lambda: {"invocations": 0, "cost_usd": 0.0})
         total_prompt_tokens = 0
         total_completion_tokens = 0
@@ -389,12 +430,14 @@ class DeliveryTrackingService:
                 "handoffs": len(handoffs),
                 "llm_invocations": len(llm_invocations),
                 "retrospective_items": len(blueprint.retrospective_items),
+                "github_sync_events": len(github_sync_events),
             },
             "status_breakdown": {
                 "sprint_cycles": dict(sprint_cycle_status_counts),
                 "stage_events": dict(stage_event_status_counts),
                 "agent_runs": dict(agent_run_status_counts),
                 "task_executions": dict(task_execution_status_counts),
+                "github_sync_events": dict(github_status_counts),
             },
             "llm": {
                 "provider_breakdown": dict(provider_breakdown),
@@ -410,5 +453,76 @@ class DeliveryTrackingService:
                 "throughput_estimate": completed_task_count,
                 "planned_task_count": sum(1 for item in scrum_plan_items if item.plan_status == "planned"),
                 "blocked_planning_count": sum(1 for item in scrum_plan_items if item.plan_status == "blocked"),
+            },
+            "github": {
+                "event_type_breakdown": dict(github_event_counts),
+                "pull_request_count": sum(1 for item in github_sync_events if item.pull_request_number is not None),
+                "protected_branch_sync_count": sum(
+                    1 for item in github_sync_events if item.event_type == "branch_protection"
+                ),
+            },
+        }
+
+    def build_blueprint_deep_dashboard(self, blueprint_id: int) -> dict[str, object]:
+        blueprint = self._get_blueprint_or_raise(blueprint_id)
+        latest_plan = None
+        if blueprint.scrum_plans:
+            latest_plan = max(
+                blueprint.scrum_plans,
+                key=lambda item: (item.version, item.created_at.isoformat() if item.created_at else ""),
+            )
+
+        recent_agent_runs = sorted(
+            blueprint.agent_runs,
+            key=lambda item: item.started_at.isoformat() if item.started_at else "",
+            reverse=True,
+        )[:8]
+        recent_artifacts = sorted(
+            blueprint.artifacts,
+            key=lambda item: item.created_at.isoformat() if item.created_at else "",
+            reverse=True,
+        )[:8]
+        recent_feedback = sorted(
+            blueprint.stage_feedback,
+            key=lambda item: item.created_at.isoformat() if item.created_at else "",
+            reverse=True,
+        )[:8]
+        retrospective_items = sorted(
+            blueprint.retrospective_items,
+            key=lambda item: item.created_at.isoformat() if item.created_at else "",
+            reverse=True,
+        )[:8]
+        github_events = sorted(
+            blueprint.github_sync_events,
+            key=lambda item: item.created_at.isoformat() if item.created_at else "",
+            reverse=True,
+        )
+        pull_requests: dict[int, dict[str, object]] = {}
+        for event in github_events:
+            if event.pull_request_number is None or event.pull_request_number in pull_requests:
+                continue
+            payload = event.payload_json or {}
+            pull_requests[event.pull_request_number] = {
+                "number": event.pull_request_number,
+                "title": payload.get("title"),
+                "state": payload.get("state"),
+                "url": payload.get("html_url"),
+                "head_ref": payload.get("head_ref"),
+                "base_ref": payload.get("base_ref"),
+                "updated_at": payload.get("updated_at"),
+            }
+
+        return {
+            "blueprint": blueprint.to_dict(),
+            "report": self.build_report(blueprint_id),
+            "latest_plan": latest_plan.to_dict() if latest_plan is not None else None,
+            "recent_agent_runs": [item.to_dict() for item in recent_agent_runs],
+            "recent_artifacts": [item.to_dict() for item in recent_artifacts],
+            "recent_feedback": [item.to_dict() for item in recent_feedback],
+            "retrospective_items": [item.to_dict() for item in retrospective_items],
+            "github": {
+                "event_count": len(github_events),
+                "recent_events": [item.to_dict() for item in github_events[:10]],
+                "pull_requests": list(pull_requests.values()),
             },
         }

@@ -28,6 +28,7 @@ def test_load_settings_reads_agentic_runtime_configuration(monkeypatch, tmp_path
     monkeypatch.setenv("GITHUB_API_URL", "https://github.enterprise.local/api/v3")
     monkeypatch.setenv("GITHUB_REPOSITORY", "acme/mission-control")
     monkeypatch.setenv("GITHUB_DEFAULT_BASE_BRANCH", "develop")
+    monkeypatch.setenv("GITHUB_PROTECTED_BRANCHES", "develop,main")
     monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
 
     config = load_module("config")
@@ -52,3 +53,4 @@ def test_load_settings_reads_agentic_runtime_configuration(monkeypatch, tmp_path
     assert settings.github.api_url == "https://github.enterprise.local/api/v3"
     assert settings.github.repository == "acme/mission-control"
     assert settings.github.default_base_branch == "develop"
+    assert settings.github.protected_branches == ("develop", "main")

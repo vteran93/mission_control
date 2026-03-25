@@ -412,6 +412,13 @@ Criterios de aceptacion:
 
 Objetivo: reducir el rol humano a configuracion y supervision.
 
+Estado actual:
+
+- Slice operador ampliado entregado: `operator_settings` persistidos, endpoints `/api/operator/settings`, `/api/operator/dashboard`, `/api/operator/github/*` y `/api/blueprints/<id>/operator-dashboard`, health consolidado de `crewai`, `ollama`, `bedrock` y `github`, y panel operador embebido en `/`.
+- GitHub ya soporta `token` o GitHub App real con `app_id`, `installation_id` y private key; el operador puede sincronizar protected branches, importar snapshots de pull requests y revisar timeline GitHub desde la UI.
+- El dashboard profundo por blueprint ya expone `latest_plan`, `agent_runs`, `artifacts`, `stage_feedback`, `retrospective_items` y PRs vinculados por branch naming.
+- Existe trazabilidad persistida en `github_sync_events` y cobertura E2E para branch protection sync, PR sync y observabilidad de blueprint.
+
 Tickets:
 
 - `AG-601` Crear wizard/UI para registrar `GITHUB_TOKEN` o GitHub App, `OLLAMA_HOST`, `AWS_REGION`, credenciales Bedrock y perfiles de modelos.

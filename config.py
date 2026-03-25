@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +21,22 @@ def _as_int(raw_value: str | None, default: int) -> int:
     return int(raw_value)
 
 
+def _as_optional_int(raw_value: str | None) -> int | None:
+    if raw_value is None or not raw_value.strip():
+        return None
+    return int(raw_value)
+
+
 def _as_float(raw_value: str | None, default: float) -> float:
     if raw_value is None:
         return default
     return float(raw_value)
+
+
+def _as_csv_tuple(raw_value: str | None) -> tuple[str, ...]:
+    if raw_value is None:
+        return ()
+    return tuple(item.strip() for item in raw_value.split(",") if item.strip())
 
 
 @dataclass(frozen=True)
@@ -63,8 +75,15 @@ class BedrockSettings:
 class GitHubSettings:
     api_url: str
     token: str | None
+    app_id: int | None
+    app_installation_id: int | None
+    app_private_key: str | None
     repository: str | None
     default_base_branch: str
+    protected_branches: tuple[str, ...]
+    required_approving_review_count: int
+    dismiss_stale_reviews: bool
+    require_conversation_resolution: bool
 
 
 @dataclass(frozen=True)
@@ -128,6 +147,12 @@ class Settings:
             "GITHUB_API_URL": self.github.api_url,
             "GITHUB_REPOSITORY": self.github.repository,
             "GITHUB_DEFAULT_BASE_BRANCH": self.github.default_base_branch,
+            "GITHUB_PROTECTED_BRANCHES": ",".join(self.github.protected_branches),
+            "GITHUB_APP_ID": self.github.app_id,
+            "GITHUB_APP_INSTALLATION_ID": self.github.app_installation_id,
+            "GITHUB_REQUIRED_APPROVING_REVIEWS": self.github.required_approving_review_count,
+            "GITHUB_DISMISS_STALE_REVIEWS": self.github.dismiss_stale_reviews,
+            "GITHUB_REQUIRE_CONVERSATION_RESOLUTION": self.github.require_conversation_resolution,
             "HOST": self.host,
             "PORT": self.port,
             "DEBUG": self.debug,
@@ -216,8 +241,24 @@ def load_settings(base_dir: str | Path | None = None) -> Settings:
     github = GitHubSettings(
         api_url=os.getenv("GITHUB_API_URL", "https://api.github.com"),
         token=os.getenv("GITHUB_TOKEN"),
+        app_id=_as_optional_int(os.getenv("GITHUB_APP_ID")),
+        app_installation_id=_as_optional_int(os.getenv("GITHUB_APP_INSTALLATION_ID")),
+        app_private_key=os.getenv("GITHUB_APP_PRIVATE_KEY"),
         repository=os.getenv("GITHUB_REPOSITORY"),
         default_base_branch=os.getenv("GITHUB_DEFAULT_BASE_BRANCH", "main"),
+        protected_branches=_as_csv_tuple(os.getenv("GITHUB_PROTECTED_BRANCHES")),
+        required_approving_review_count=_as_int(
+            os.getenv("GITHUB_REQUIRED_APPROVING_REVIEWS"),
+            default=1,
+        ),
+        dismiss_stale_reviews=_as_bool(
+            os.getenv("GITHUB_DISMISS_STALE_REVIEWS"),
+            default=True,
+        ),
+        require_conversation_resolution=_as_bool(
+            os.getenv("GITHUB_REQUIRE_CONVERSATION_RESOLUTION"),
+            default=True,
+        ),
     )
 
     return Settings(
@@ -241,4 +282,22 @@ def load_settings(base_dir: str | Path | None = None) -> Settings:
         ollama=ollama,
         bedrock=bedrock,
         github=github,
+    )
+
+
+def apply_settings_overrides(
+    base_settings: Settings,
+    *,
+    ollama: dict[str, Any] | None = None,
+    bedrock: dict[str, Any] | None = None,
+    github: dict[str, Any] | None = None,
+) -> Settings:
+    resolved_ollama = replace(base_settings.ollama, **(ollama or {}))
+    resolved_bedrock = replace(base_settings.bedrock, **(bedrock or {}))
+    resolved_github = replace(base_settings.github, **(github or {}))
+    return replace(
+        base_settings,
+        ollama=resolved_ollama,
+        bedrock=resolved_bedrock,
+        github=resolved_github,
     )

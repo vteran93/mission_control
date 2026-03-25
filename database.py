@@ -256,6 +256,28 @@ class TaskQueue(db.Model):
         }
 
 
+class OperatorSettingRecord(db.Model):
+    """Configuracion operativa persistida para providers e integraciones."""
+    __tablename__ = 'operator_settings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), nullable=False, unique=True, index=True)
+    value_json = db.Column(db.JSON, nullable=False)
+    is_secret = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'key': self.key,
+            'value': self.value_json,
+            'is_secret': self.is_secret,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class SpecDocumentRecord(db.Model):
     """Documento fuente ingerido para construir un blueprint"""
     __tablename__ = 'spec_documents'
@@ -774,6 +796,42 @@ class ArtifactRecord(db.Model):
             'artifact_type': self.artifact_type,
             'uri': self.uri,
             'metadata': self.metadata_json or {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class GitHubSyncEventRecord(db.Model):
+    """Evento sincronizado desde o hacia GitHub para trazabilidad operativa."""
+    __tablename__ = 'github_sync_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=True, index=True)
+    repository = db.Column(db.String(255), nullable=False, index=True)
+    event_type = db.Column(db.String(100), nullable=False, index=True)
+    action = db.Column(db.String(100))
+    status = db.Column(db.String(50), nullable=False, default='completed', index=True)
+    summary = db.Column(db.Text, nullable=False)
+    branch_name = db.Column(db.String(255), index=True)
+    pull_request_number = db.Column(db.Integer, index=True)
+    external_id = db.Column(db.String(255), index=True)
+    payload_json = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    blueprint = db.relationship('ProjectBlueprintRecord', backref='github_sync_events')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_blueprint_id': self.project_blueprint_id,
+            'repository': self.repository,
+            'event_type': self.event_type,
+            'action': self.action,
+            'status': self.status,
+            'summary': self.summary,
+            'branch_name': self.branch_name,
+            'pull_request_number': self.pull_request_number,
+            'external_id': self.external_id,
+            'payload': self.payload_json or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

@@ -14,8 +14,11 @@ def load_module(module_name: str):
             if (
                 loaded_module.startswith("autonomous_delivery")
                 or loaded_module.startswith("autonomous_scrum")
+                or loaded_module.startswith("spec_intake")
                 or loaded_module.startswith("delivery_tracking")
                 or loaded_module.startswith("crew_runtime")
+                or loaded_module.startswith("operator_control")
+                or loaded_module.startswith("github_operator")
             ):
                 sys.modules.pop(loaded_module, None)
     return importlib.import_module(module_name)

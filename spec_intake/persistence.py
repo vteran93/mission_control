@@ -183,6 +183,11 @@ class BlueprintPersistenceService:
             blueprint_record.retrospective_items,
             key=lambda item: item.created_at.isoformat() if item.created_at else "",
         )
+        github_sync_events = sorted(
+            blueprint_record.github_sync_events,
+            key=lambda item: item.created_at.isoformat() if item.created_at else "",
+            reverse=True,
+        )
         sprint_cycles = sorted(
             blueprint_record.sprint_cycles,
             key=lambda item: item.created_at.isoformat() if item.created_at else "",
@@ -232,6 +237,7 @@ class BlueprintPersistenceService:
             "scrum_plans": [item.to_dict() for item in scrum_plans],
             "stage_feedback": [item.to_dict() for item in stage_feedback],
             "retrospective_items": [item.to_dict() for item in retrospective_items],
+            "github_sync_events": [item.to_dict() for item in github_sync_events[:20]],
             "summary": {
                 "requirements_count": len(requirements),
                 "epics_count": len(epics),
@@ -241,6 +247,7 @@ class BlueprintPersistenceService:
                 "scrum_plan_items_count": len(blueprint_record.scrum_plan_items),
                 "feedback_count": len(stage_feedback),
                 "retrospective_items_count": len(retrospective_items),
+                "github_sync_events_count": len(github_sync_events),
                 "issues_count": len(blueprint_record.issues_json or []),
             },
         }

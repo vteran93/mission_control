@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import requests
 from flask import Flask, current_app, jsonify, render_template, request
 from flask_cors import CORS
 
@@ -25,6 +26,8 @@ from database import (
     db,
 )
 from delivery_tracking import DeliveryTrackingService
+from github_operator import GitHubOperatorService
+from operator_control import OperatorControlService
 from spec_intake import BlueprintPersistenceService, SpecIntakeService
 
 
@@ -49,6 +52,11 @@ def init_db(app: Flask | None = None) -> None:
     from db_bootstrap import initialize_database
 
     initialize_database(application)
+    with application.app_context():
+        application.extensions["operator_control_service"].reload_runtime(
+            application,
+            start_dispatcher=False,
+        )
     application.extensions["mission_control_runtime"].start_background_dispatcher(application)
 
 
@@ -64,8 +72,12 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     CORS(app)
     db.init_app(app)
     runtime = AgenticRuntime(settings)
+    operator_control_service = OperatorControlService(settings)
+    github_operator_service = GitHubOperatorService(operator_control_service)
     app.extensions["mission_control_runtime"] = runtime
     app.extensions["queue_dispatcher"] = runtime.dispatcher
+    app.extensions["operator_control_service"] = operator_control_service
+    app.extensions["github_operator_service"] = github_operator_service
     app.extensions["spec_intake_service"] = SpecIntakeService()
     app.extensions["blueprint_persistence_service"] = BlueprintPersistenceService()
     app.extensions["delivery_tracking_service"] = DeliveryTrackingService()
@@ -98,6 +110,77 @@ def register_routes(app: Flask) -> None:
                 "database": {"scheme": database_scheme(app.config["SQLALCHEMY_DATABASE_URI"])},
                 "agent_wakeups_enabled": app.config["ENABLE_AGENT_WAKEUPS"],
                 "agentic_runtime_enabled": app.config["MISSION_CONTROL_RUNTIME_ENABLED"],
+            }
+        )
+
+    @app.route("/api/operator/settings", methods=["GET", "PUT"])
+    def operator_settings():
+        operator_service = app.extensions["operator_control_service"]
+        if request.method == "GET":
+            return jsonify(operator_service.serialize_settings())
+
+        data = request.get_json(silent=True) or {}
+        try:
+            payload = operator_service.update_settings(data, app=app)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload)
+
+    @app.route("/api/operator/dashboard", methods=["GET"])
+    def operator_dashboard():
+        operator_service = app.extensions["operator_control_service"]
+        return jsonify(operator_service.build_dashboard(app))
+
+    @app.route("/api/operator/github/dashboard", methods=["GET"])
+    def operator_github_dashboard():
+        github_service = app.extensions["github_operator_service"]
+        return jsonify(github_service.build_dashboard())
+
+    @app.route("/api/operator/github/sync-branches", methods=["POST"])
+    def operator_github_sync_branches():
+        github_service = app.extensions["github_operator_service"]
+        data = request.get_json(silent=True) or {}
+        try:
+            payload = github_service.sync_protected_branches(
+                dry_run=bool(data.get("dry_run", False)),
+                branches=data.get("branches"),
+            )
+        except requests.RequestException as exc:
+            return jsonify({"error": str(exc)}), 502
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload)
+
+    @app.route("/api/operator/github/pull-requests/sync", methods=["POST"])
+    def operator_github_sync_pull_requests():
+        github_service = app.extensions["github_operator_service"]
+        data = request.get_json(silent=True) or {}
+        try:
+            payload = github_service.sync_pull_requests(
+                state=data.get("state", "all"),
+                per_page=int(data.get("per_page", 20)),
+            )
+        except requests.RequestException as exc:
+            return jsonify({"error": str(exc)}), 502
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload)
+
+    @app.route("/api/operator/github/timeline", methods=["GET"])
+    def operator_github_timeline():
+        github_service = app.extensions["github_operator_service"]
+        blueprint_id = request.args.get("blueprint_id", type=int)
+        limit = request.args.get("limit", default=50, type=int)
+        return jsonify(
+            {
+                "events": github_service.list_recent_events(
+                    blueprint_id=blueprint_id,
+                    limit=limit,
+                )
             }
         )
 
@@ -418,6 +501,15 @@ def register_routes(app: Flask) -> None:
         except LookupError as exc:
             return jsonify({"error": str(exc)}), 404
         return jsonify(report)
+
+    @app.route("/api/blueprints/<int:blueprint_id>/operator-dashboard", methods=["GET"])
+    def blueprint_operator_dashboard(blueprint_id: int):
+        tracking_service = app.extensions["delivery_tracking_service"]
+        try:
+            payload = tracking_service.build_blueprint_deep_dashboard(blueprint_id)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        return jsonify(payload)
 
     @app.route("/api/blueprints/<int:blueprint_id>/scrum-plans", methods=["GET"])
     def list_scrum_plans(blueprint_id: int):

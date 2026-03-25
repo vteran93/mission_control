@@ -113,13 +113,45 @@ class GitHubProvider:
         self.settings = settings
 
     def healthcheck(self) -> ProviderHealth:
-        if not self.settings.token:
+        auth_mode = "none"
+        if (
+            self.settings.app_id is not None
+            and self.settings.app_installation_id is not None
+            and self.settings.app_private_key
+        ):
+            auth_mode = "app"
+        elif self.settings.token:
+            auth_mode = "token"
+
+        if auth_mode == "none":
             return ProviderHealth(
                 name=self.name,
                 ok=False,
                 configured=False,
-                detail="GITHUB_TOKEN no configurado",
-                metadata={"repository": self.settings.repository},
+                detail="GitHub no tiene token ni credenciales de GitHub App configuradas",
+                metadata={
+                    "repository": self.settings.repository,
+                    "default_base_branch": self.settings.default_base_branch,
+                    "protected_branches": list(self.settings.protected_branches),
+                    "auth_mode": auth_mode,
+                },
+            )
+
+        if auth_mode == "app":
+            return ProviderHealth(
+                name=self.name,
+                ok=True,
+                configured=True,
+                detail="GitHub App configurada",
+                metadata={
+                    "api_url": self.settings.api_url,
+                    "repository": self.settings.repository,
+                    "default_base_branch": self.settings.default_base_branch,
+                    "protected_branches": list(self.settings.protected_branches),
+                    "auth_mode": auth_mode,
+                    "app_id": self.settings.app_id,
+                    "app_installation_id": self.settings.app_installation_id,
+                },
             )
 
         try:
@@ -138,7 +170,12 @@ class GitHubProvider:
                 ok=False,
                 configured=True,
                 detail=f"GitHub no responde: {exc}",
-                metadata={"repository": self.settings.repository},
+                metadata={
+                    "repository": self.settings.repository,
+                    "default_base_branch": self.settings.default_base_branch,
+                    "protected_branches": list(self.settings.protected_branches),
+                    "auth_mode": auth_mode,
+                },
             )
 
         return ProviderHealth(
@@ -150,5 +187,7 @@ class GitHubProvider:
                 "api_url": self.settings.api_url,
                 "repository": self.settings.repository,
                 "default_base_branch": self.settings.default_base_branch,
+                "protected_branches": list(self.settings.protected_branches),
+                "auth_mode": auth_mode,
             },
         )

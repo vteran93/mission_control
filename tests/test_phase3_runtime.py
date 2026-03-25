@@ -13,6 +13,8 @@ def clear_runtime_modules():
             or module_name.startswith("crew_runtime")
             or module_name.startswith("spec_intake")
             or module_name.startswith("delivery_tracking")
+            or module_name.startswith("operator_control")
+            or module_name.startswith("github_operator")
         ):
             sys.modules.pop(module_name, None)
 
