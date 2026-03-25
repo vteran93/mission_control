@@ -1,4 +1,5 @@
 import importlib
+import json
 import subprocess
 import sys
 import types
@@ -182,6 +183,14 @@ Crear un modulo de Terraform con un recurso S3 basico en una carpeta infra.
     with app.app_context():
         app_module.db.create_all()
 
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=workspace_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=workspace_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=workspace_root, check=True, capture_output=True, text=True)
+    (workspace_root / "README.md").write_text("# Temp Workspace\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=workspace_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "chore: initial commit"], cwd=workspace_root, check=True, capture_output=True, text=True)
+
     return app, database_module, requirements_path, roadmap_path, workspace_root, fake_crew_class
 
 
@@ -218,11 +227,27 @@ def test_semiautomatic_delivery_executes_ready_plan_and_writes_workspace_artifac
     plan = plan_response.get_json()
     assert plan["approval_status"] == "approved"
 
+    preview_response = client.post(
+        f"/api/blueprints/{blueprint_id}/delivery/guardrails/preview",
+        json={"workspace_root": str(workspace_root)},
+    )
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.get_json()
+    assert preview_payload["guardrails"]["persisted"] is False
+    assert set(preview_payload["guardrails"]["allowed_write_paths"]) == {
+        "examples/holamundo.py",
+        "frontend/index.html",
+        "infra/main.tf",
+        "infra/outputs.tf",
+        "infra/variables.tf",
+    }
+
     execute_response = client.post(
         f"/api/blueprints/{blueprint_id}/delivery/execute",
         json={
             "workspace_root": str(workspace_root),
             "execution_mode": "semi_automatic",
+            "auto_merge_current_branch": True,
         },
     )
     assert execute_response.status_code == 201
@@ -230,6 +255,7 @@ def test_semiautomatic_delivery_executes_ready_plan_and_writes_workspace_artifac
     assert payload["summary"]["ok"] is True
     assert payload["summary"]["executed_item_count"] == 3
     assert payload["summary"]["written_file_count"] == 5
+    assert payload["guardrails"]["persisted"] is True
 
     files_by_ticket = {item["ticket_id"]: item["files"] for item in payload["executions"]}
     assert files_by_ticket["TICKET-501"] == ["examples/holamundo.py"]
@@ -247,6 +273,16 @@ def test_semiautomatic_delivery_executes_ready_plan_and_writes_workspace_artifac
     assert python_script.exists()
     assert react_page.exists()
     assert terraform_main.exists()
+    guardrail_file = workspace_root / ".mission_control" / "guardrails" / "architecture_guardrails.json"
+    assert guardrail_file.exists()
+    guardrail_payload = json.loads(guardrail_file.read_text(encoding="utf-8"))
+    assert sorted(guardrail_payload["allowed_write_paths"]) == [
+        "examples/holamundo.py",
+        "frontend/index.html",
+        "infra/main.tf",
+        "infra/outputs.tf",
+        "infra/variables.tf",
+    ]
 
     python_result = subprocess.run(
         ["python3", str(python_script)],
@@ -265,14 +301,47 @@ def test_semiautomatic_delivery_executes_ready_plan_and_writes_workspace_artifac
     terraform_content = terraform_main.read_text(encoding="utf-8")
     assert 'resource "aws_s3_bucket" "basic"' in terraform_content
     assert "bucket = var.bucket_name" in terraform_content
+    assert (workspace_root / ".mission_control" / "reports" / "delivery_summary.md").exists()
+    assert (workspace_root / ".mission_control" / "reports" / "review_report.json").exists()
+    assert (workspace_root / ".mission_control" / "reports" / "qa_gate.json").exists()
+    assert (workspace_root / ".mission_control" / "reports" / "test_evidence.json").exists()
+    assert (workspace_root / ".mission_control" / "reports" / "retrospective.md").exists()
+    assert (workspace_root / ".mission_control" / "releases" / "release_candidate.json").exists()
+
+    assert payload["review"]["verdict"] == "approved"
+    assert payload["qa_gate"]["verdict"] == "passed"
+    assert payload["release_candidate"]["git_repository"] is True
+    assert payload["release_candidate"]["merged"] is True
+    assert payload["retrospective"]["item_count"] == 2
+
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    assert current_branch.stdout.strip() == "main"
+
+    git_log = subprocess.run(
+        ["git", "log", "--oneline", "-1"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    assert "release candidate for blueprint" in git_log.stdout
 
     report_response = client.get(f"/api/blueprints/{blueprint_id}/report")
     assert report_response.status_code == 200
     report = report_response.get_json()
-    assert report["counts"]["agent_runs"] == 4
+    assert report["counts"]["agent_runs"] == 9
     assert report["counts"]["task_executions"] == 3
-    assert report["counts"]["artifacts"] == 5
+    assert report["counts"]["artifacts"] == 11
     assert report["status_breakdown"]["task_executions"]["done"] == 3
+    assert report["counts"]["retrospective_items"] == 2
 
     timeline_response = client.get(f"/api/blueprints/{blueprint_id}/timeline")
     assert timeline_response.status_code == 200
@@ -283,9 +352,133 @@ def test_semiautomatic_delivery_executes_ready_plan_and_writes_workspace_artifac
         if item["event_type"] == "sprint_stage_event"
         and item["payload"]["source"] == "semi_automatic_delivery"
     ]
-    assert {item["payload"]["stage_name"] for item in execution_events} == {"execution", "qa_gate"}
+    assert {item["payload"]["stage_name"] for item in execution_events} == {
+        "execution",
+        "review",
+        "qa_gate",
+        "release",
+        "retrospective",
+    }
 
     with app.app_context():
-        assert database_module.AgentRunRecord.query.count() == 4
+        assert database_module.AgentRunRecord.query.count() == 9
         assert database_module.TaskExecutionRecord.query.count() == 3
-        assert database_module.ArtifactRecord.query.count() == 5
+        assert database_module.ArtifactRecord.query.count() == 11
+
+
+def test_semiautomatic_delivery_retries_after_autocorrection(
+    configured_phase5_app,
+    monkeypatch,
+):
+    app, database_module, requirements_path, roadmap_path, workspace_root, fake_crew_class = configured_phase5_app
+    client = app.test_client()
+    blueprint = import_blueprint(client, requirements_path, roadmap_path)
+    blueprint_id = blueprint["id"]
+
+    fake_crew_class.kickoff_plan = [
+        types.SimpleNamespace(
+            raw='{"approval_status":"approved","summary":"Plan listo para probar retry","risks":[],"actions":["ejecutar"]}'
+        )
+    ]
+    plan_response = client.post(
+        f"/api/blueprints/{blueprint_id}/scrum-plan",
+        json={"sprint_capacity": 12},
+    )
+    assert plan_response.status_code == 201
+
+    service = app.extensions["autonomous_delivery_service"]
+    real_validate = service._validate_recipe
+    call_counter = {"python": 0}
+
+    def flaky_validate(*, recipe, workspace_root):
+        if recipe.name == "python_hello_world":
+            call_counter["python"] += 1
+            if call_counter["python"] == 1:
+                return {
+                    "kind": "command",
+                    "command": "python3 examples/holamundo.py",
+                    "ok": False,
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": "forced failure",
+                    "summary": "Forced validation failure.",
+                }
+        return real_validate(recipe=recipe, workspace_root=workspace_root)
+
+    monkeypatch.setattr(service, "_validate_recipe", flaky_validate)
+
+    execute_response = client.post(
+        f"/api/blueprints/{blueprint_id}/delivery/execute",
+        json={
+            "workspace_root": str(workspace_root),
+            "execution_mode": "semi_automatic",
+            "ticket_ids": ["TICKET-501"],
+        },
+    )
+    assert execute_response.status_code == 201
+    payload = execute_response.get_json()
+    execution = payload["executions"][0]
+
+    assert execution["ticket_id"] == "TICKET-501"
+    assert execution["status"] == "done"
+    assert execution["autocorrection"]["applied"] is True
+    assert execution["autocorrection"]["action"] == "rewrite_recipe_files"
+    assert len(execution["attempts"]) == 2
+    assert execution["attempts"][0]["validation"]["ok"] is False
+    assert execution["attempts"][1]["validation"]["ok"] is True
+
+    with app.app_context():
+        assert database_module.TaskExecutionRecord.query.count() == 2
+
+
+def test_delivery_guardrails_block_forbidden_workspace_paths(
+    configured_phase5_app,
+    monkeypatch,
+):
+    app, _database_module, requirements_path, roadmap_path, workspace_root, fake_crew_class = configured_phase5_app
+    client = app.test_client()
+    blueprint = import_blueprint(client, requirements_path, roadmap_path)
+    blueprint_id = blueprint["id"]
+
+    fake_crew_class.kickoff_plan = [
+        types.SimpleNamespace(
+            raw='{"approval_status":"approved","summary":"Plan listo para probar guardrails","risks":[],"actions":["ejecutar"]}'
+        )
+    ]
+    plan_response = client.post(
+        f"/api/blueprints/{blueprint_id}/scrum-plan",
+        json={"sprint_capacity": 12},
+    )
+    assert plan_response.status_code == 201
+
+    service = app.extensions["autonomous_delivery_service"]
+    delivery_module = importlib.import_module("autonomous_delivery.service")
+    original_resolve_recipe = service._resolve_recipe
+
+    def patched_resolve_recipe(task):
+        if task.ticket_id == "TICKET-501":
+            return delivery_module.DeliveryRecipe(
+                name="rogue_write",
+                summary="Attempts to write a forbidden git path.",
+                files=(
+                    delivery_module.DeliveryFileSpec(
+                        path=".git/config",
+                        content="[core]\nrepositoryformatversion = 0\n",
+                        artifact_type="code",
+                    ),
+                ),
+                validation_kind="static_check",
+            )
+        return original_resolve_recipe(task)
+
+    monkeypatch.setattr(service, "_resolve_recipe", patched_resolve_recipe)
+
+    preview_response = client.post(
+        f"/api/blueprints/{blueprint_id}/delivery/guardrails/preview",
+        json={
+            "workspace_root": str(workspace_root),
+            "ticket_ids": ["TICKET-501"],
+        },
+    )
+    assert preview_response.status_code == 400
+    assert "Path blocked by architecture guardrails" in preview_response.get_json()["error"]

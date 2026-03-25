@@ -9,6 +9,12 @@ from typing import Any
 from xml.etree import ElementTree
 
 from autonomous_scrum import AutonomousScrumPlannerService
+from architecture_guardrails import (
+    ArchitectureGuardrailPolicy,
+    find_guardrail_policy,
+    validate_relative_path,
+    validate_unix_command,
+)
 from config import Settings
 from database import ProjectBlueprintRecord, db
 from delivery_tracking import DeliveryTrackingService
@@ -389,6 +395,7 @@ class RuntimeToolCatalog:
 
     def write_workspace_file(self, *, path: str, content: str, overwrite: bool = True) -> str:
         resolved_path = self._resolve_workspace_path(path)
+        self._enforce_workspace_write_guardrails(resolved_path)
         if resolved_path.exists() and not overwrite:
             raise FileExistsError(f"File already exists: {resolved_path}")
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,6 +417,7 @@ class RuntimeToolCatalog:
         timeout_seconds: int = 120,
     ) -> dict[str, Any]:
         resolved_dir = self._resolve_workspace_path(cwd, expect_directory=True)
+        self._enforce_command_guardrails(command=command, cwd=resolved_dir)
         completed = subprocess.run(
             ["/bin/sh", "-lc", command],
             cwd=resolved_dir,
@@ -463,6 +471,33 @@ class RuntimeToolCatalog:
         if expect_directory:
             resolved.mkdir(parents=True, exist_ok=True)
         return resolved
+
+    def _enforce_workspace_write_guardrails(self, resolved_path: Path) -> None:
+        active_policy = self._find_active_guardrail_policy(resolved_path)
+        if active_policy is None:
+            return
+        policy_root, policy = active_policy
+        relative_path = str(resolved_path.relative_to(policy_root))
+        validate_relative_path(relative_path, policy)
+
+    def _enforce_command_guardrails(self, *, command: str, cwd: Path) -> None:
+        active_policy = self._find_active_guardrail_policy(cwd)
+        if active_policy is None:
+            return
+        _, policy = active_policy
+        validate_unix_command(command, policy)
+
+    def _find_active_guardrail_policy(
+        self,
+        target_path: Path,
+    ) -> tuple[Path, ArchitectureGuardrailPolicy] | None:
+        active_policy = find_guardrail_policy(target_path, stop_path=self.workspace_root)
+        if active_policy is None:
+            return None
+        policy_root, policy = active_policy
+        if policy_root != self.workspace_root and self.workspace_root not in policy_root.parents:
+            return None
+        return policy_root, policy
 
     def _serialize_process_result(
         self,

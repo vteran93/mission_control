@@ -863,6 +863,67 @@ def validate_phase5_semiautomatic_delivery(
         raise RuntimeError(f"Phase 5 plan did not reach approved state: {plan}")
 
     workspace_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Mission Control E2E"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "mission-control-e2e@local"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    (workspace_root / "README.md").write_text("# Phase 5 Workspace\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "README.md"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "chore: initial workspace"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    status, preview = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/delivery/guardrails/preview",
+        {
+            "workspace_root": str(workspace_root),
+        },
+    )
+    if status != 200:
+        raise RuntimeError(f"Cannot preview phase 5 guardrails: status={status}, body={preview}")
+    expected_guardrail_paths = {
+        "examples/holamundo.py",
+        "frontend/index.html",
+        "infra/main.tf",
+        "infra/outputs.tf",
+        "infra/variables.tf",
+    }
+    if set(preview["guardrails"]["allowed_write_paths"]) != expected_guardrail_paths:
+        raise RuntimeError(f"Unexpected phase 5 guardrail preview: {preview}")
+
     status, execution = api_call(
         base_url,
         "POST",
@@ -870,18 +931,30 @@ def validate_phase5_semiautomatic_delivery(
         {
             "workspace_root": str(workspace_root),
             "execution_mode": "semi_automatic",
+            "auto_merge_current_branch": True,
         },
     )
     if status != 201:
         raise RuntimeError(f"Cannot execute phase 5 delivery: status={status}, body={execution}")
     if execution["summary"]["ok"] is not True:
         raise RuntimeError(f"Phase 5 delivery reported validation failures: {execution}")
+    if execution["review"]["verdict"] != "approved":
+        raise RuntimeError(f"Phase 5 review did not approve the execution: {execution}")
+    if execution["qa_gate"]["verdict"] != "passed":
+        raise RuntimeError(f"Phase 5 QA gate did not pass: {execution}")
+    if execution["release_candidate"]["merged"] is not True:
+        raise RuntimeError(f"Phase 5 release candidate did not merge: {execution}")
+    if execution["retrospective"]["item_count"] < 2:
+        raise RuntimeError(f"Phase 5 retrospective did not record enough items: {execution}")
 
     python_script = workspace_root / "examples" / "holamundo.py"
     react_page = workspace_root / "frontend" / "index.html"
     terraform_main = workspace_root / "infra" / "main.tf"
     terraform_variables = workspace_root / "infra" / "variables.tf"
     terraform_outputs = workspace_root / "infra" / "outputs.tf"
+    delivery_summary = workspace_root / ".mission_control" / "reports" / "delivery_summary.md"
+    release_candidate = workspace_root / ".mission_control" / "releases" / "release_candidate.json"
+    guardrail_policy = workspace_root / ".mission_control" / "guardrails" / "architecture_guardrails.json"
 
     for required_path in (
         python_script,
@@ -889,6 +962,9 @@ def validate_phase5_semiautomatic_delivery(
         terraform_main,
         terraform_variables,
         terraform_outputs,
+        delivery_summary,
+        release_candidate,
+        guardrail_policy,
     ):
         if not required_path.is_file():
             raise RuntimeError(f"Phase 5 artifact missing from workspace: {required_path}")
@@ -914,11 +990,24 @@ def validate_phase5_semiautomatic_delivery(
     if 'resource "aws_s3_bucket" "basic"' not in terraform_content:
         raise RuntimeError(f"Phase 5 Terraform artifact is incomplete: {terraform_main}")
 
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    if current_branch.stdout.strip() != "main":
+        raise RuntimeError(f"Phase 5 release flow did not restore the main branch: {current_branch.stdout!r}")
+
     status, report = api_call(base_url, "GET", f"/api/blueprints/{blueprint_id}/report")
     if status != 200:
         raise RuntimeError(f"Cannot read phase 5 report: status={status}, body={report}")
-    if report["counts"]["artifacts"] != 5:
+    if report["counts"]["artifacts"] != 11:
         raise RuntimeError(f"Unexpected phase 5 artifact count: {report}")
+    if report["counts"]["retrospective_items"] != 2:
+        raise RuntimeError(f"Unexpected phase 5 retrospective count: {report}")
 
     return {
         "blueprint_id": blueprint_id,
@@ -930,6 +1019,11 @@ def validate_phase5_semiautomatic_delivery(
         "artifact_count": report["counts"]["artifacts"],
         "agent_run_count": report["counts"]["agent_runs"],
         "task_execution_count": report["counts"]["task_executions"],
+        "review_verdict": execution["review"]["verdict"],
+        "qa_verdict": execution["qa_gate"]["verdict"],
+        "release_status": execution["release_candidate"]["status"],
+        "retrospective_item_count": execution["retrospective"]["item_count"],
+        "guardrail_path_count": len(preview["guardrails"]["allowed_write_paths"]),
     }
 
 

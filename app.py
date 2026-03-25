@@ -534,6 +534,7 @@ def register_routes(app: Flask) -> None:
                 item_limit=data.get("item_limit"),
                 ticket_ids=data.get("ticket_ids"),
                 execution_mode=data.get("execution_mode", "semi_automatic"),
+                auto_merge_current_branch=data.get("auto_merge_current_branch", False),
             )
         except LookupError as exc:
             return jsonify({"error": str(exc)}), 404
@@ -542,6 +543,27 @@ def register_routes(app: Flask) -> None:
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 409
         return jsonify(payload), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/delivery/guardrails/preview", methods=["POST"])
+    def preview_delivery_guardrails(blueprint_id: int):
+        delivery_service = app.extensions["autonomous_delivery_service"]
+        data = request.get_json(silent=True) or {}
+        try:
+            payload = delivery_service.preview_guardrails(
+                blueprint_id=blueprint_id,
+                workspace_root=data.get("workspace_root"),
+                plan_id=data.get("plan_id"),
+                sprint_order=data.get("sprint_order"),
+                item_limit=data.get("item_limit"),
+                ticket_ids=data.get("ticket_ids"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        return jsonify(payload)
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):

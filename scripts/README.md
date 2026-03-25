@@ -80,7 +80,8 @@ Este flujo ahora valida tambien:
 - escalamiento `bedrock_review`
 - `approval_status` + aprobacion manual
 - vista consolidada `/scrum-plan/sprint-view`
-- modo semiautomatico de delivery con escritura real a `examples/`, `frontend/` e `infra/`
+- pipeline completo de Fase 5: delivery, review, QA gate, artifacts, release candidate local y retrospective
+- escritura real a `examples/`, `frontend/` e `infra/`
 
 Si quieres validación estricta de LangGraph (falla si falta dependencia):
 
@@ -104,17 +105,40 @@ Endpoint disponible:
 POST /api/blueprints/<blueprint_id>/delivery/execute
 ```
 
+Preview de guardrails antes de ejecutar:
+
+```bash
+POST /api/blueprints/<blueprint_id>/delivery/guardrails/preview
+```
+
 Payload minimo:
 
 ```json
 {
   "workspace_root": "/ruta/al/workspace",
-  "execution_mode": "semi_automatic"
+  "execution_mode": "semi_automatic",
+  "auto_merge_current_branch": false
 }
 ```
 
-El slice actual ejecuta tickets `planned` + `ready` de un `scrum_plan` aprobado y soporta recetas deterministas para:
+El flujo actual ejecuta tickets `planned` + `ready` de un `scrum_plan` aprobado y hace:
+
+- preview/persistencia de architecture guardrails por workspace
+- delivery a disco
+- review estructurado
+- QA gate
+- artifacts de evidencia
+- release candidate local en git
+- retrospective y cierre de sprint
+
+Recetas deterministas soportadas:
 
 - `examples/holamundo.py`
 - `frontend/index.html` con React
 - `infra/*.tf` con un modulo S3 basico
+
+Cuando se ejecuta el delivery, Mission Control persiste la politica en:
+
+- `.mission_control/guardrails/architecture_guardrails.json`
+
+La politica limita escrituras al set exacto de archivos seleccionados por el plan y a roots internos de Mission Control como `.mission_control/reports/` y `.mission_control/releases/`. El toolkit del runtime tambien respeta esta politica para `workspace_write_file` y bloquea patrones de shell peligrosos en `workspace_run_unix_command`.

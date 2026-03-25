@@ -10,8 +10,8 @@
 - [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
 - [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
 - [ ] Fase 3 - CrewAI Runtime Hybrid (runtime operativo validado; escalamiento real a Bedrock sigue pendiente)
-- [ ] Fase 4 - Autonomous Scrum Planner (slice inicial entregado: scrum plan versionado, replanificacion, ceremonias y score de riesgo)
-- [ ] Fase 5 - Autonomous Delivery Loop (slice semiautomatico entregado: ejecucion de tickets ready, escritura de artefactos simples a disco y QA basico)
+- [x] Fase 4 - Autonomous Scrum Planner (plan versionado, aprobacion, escalamiento Bedrock y vista operativa por sprint)
+- [x] Fase 5 - Autonomous Delivery Loop (delivery, review, QA gate, artifacts, autocorreccion, release candidate local, retrospective y architecture guardrails por workspace)
 - [ ] Fase 6 - GitHub + Operator UX
 - [ ] Fase 7 - Hardening & Benchmark
 
@@ -382,11 +382,15 @@ Criterios de aceptacion:
 
 Objetivo: ejecutar implementacion end-to-end sin intervencion humana continua.
 
-Avance del slice semiautomatico:
+Cierre de Fase 5:
 
-- `AG-501` slice inicial cumplido: endpoint/API de delivery semiautomatico toma tickets `planned` + `ready` desde un `scrum_plan` aprobado y escribe artefactos reales en un `workspace_root`.
-- `AG-503` slice inicial cumplido: QA gate basico valida artefactos deterministas por receta (`python`, `react`, `terraform`) antes de cerrar la ejecucion.
-- `AG-504` slice inicial cumplido: artifacts escritos a disco quedan registrados en `artifacts`, con `agent_runs`, `task_executions` y `stage_events` de `execution` / `qa_gate`.
+- `AG-501` cumplido: el pipeline toma tickets `planned` + `ready` desde un `scrum_plan` aprobado, ejecuta delivery y escribe artefactos reales en un `workspace_root`.
+- `AG-502` cumplido: existe etapa de `review` con findings estructurados, veredicto y trazabilidad en `stage_feedback`, `handoffs` y `agent_runs`.
+- `AG-503` cumplido: el `QA Gate` evalua reglas canonicas sobre ejecucion, validaciones y aprobacion de review antes de liberar.
+- `AG-504` cumplido: `Artifact Builder` genera evidencia operativa (`delivery_summary`, `review_report`, `qa_gate`, `test_evidence`, `release_candidate`, `retrospective`) y la registra en `artifacts`.
+- `AG-505` cumplido: hay loop de autocorreccion con reintento cuando una validacion falla y evidencia de retry en `task_executions` / `handoffs`.
+- `AG-506` cumplido: el flujo crea `release candidate` local sobre git, soporta merge `ff-only` al branch actual y deja metadata reproducible.
+- `AG-507` cumplido: el cierre registra `review`, `release`, `retrospective`, actualiza `sprint_cycles` y alimenta `retrospective_items`.
 
 Tickets:
 

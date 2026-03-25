@@ -2,6 +2,10 @@ import importlib
 import subprocess
 import sys
 
+import pytest
+
+from architecture_guardrails import ArchitectureGuardrailPolicy, save_guardrail_policy
+
 
 def load_modules():
     for module_name in list(sys.modules):
@@ -85,3 +89,36 @@ def test_workspace_tools_write_read_unix_and_mypy(tmp_path, monkeypatch):
 
     assert mypy_result["ok"] is True
     assert "no issues found" in mypy_result["stdout"]
+
+
+def test_workspace_tools_respect_architecture_guardrails(tmp_path, monkeypatch):
+    monkeypatch.setenv("MISSION_CONTROL_BASE_DIR", str(tmp_path))
+    config_module, toolkit_module = load_modules()
+    settings = config_module.load_settings(base_dir=tmp_path)
+    catalog = toolkit_module.RuntimeToolCatalog(settings)
+
+    save_guardrail_policy(
+        tmp_path,
+        ArchitectureGuardrailPolicy.from_dict(
+            {
+                "scope": {"kind": "test"},
+                "allowed_write_paths": ["allowed/output.txt"],
+                "allowed_write_roots": [".mission_control/reports/"],
+            }
+        ),
+    )
+
+    write_result = catalog.write_workspace_file(
+        path="allowed/output.txt",
+        content="ok\n",
+    )
+    assert "written" in write_result
+
+    with pytest.raises(ValueError, match="architecture guardrails"):
+        catalog.write_workspace_file(
+            path=".git/config",
+            content="[core]\nrepositoryformatversion = 0\n",
+        )
+
+    with pytest.raises(ValueError, match="Command blocked by runtime guardrails"):
+        catalog.run_unix_command(command="rm -rf allowed", cwd=".")
