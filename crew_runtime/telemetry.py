@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from database import (
     AgentRunRecord,
@@ -202,4 +202,4 @@ class RuntimeTelemetryRecorder:
 
     @staticmethod
     def _utc_now() -> datetime:
-        return datetime.now(UTC).replace(tzinfo=None)
+        return datetime.now(timezone.utc).replace(tzinfo=None)

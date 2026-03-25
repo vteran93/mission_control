@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import case
 
@@ -135,7 +135,7 @@ class DatabaseQueueDispatcher:
         )
         for queue_entry in queue_entries:
             queue_entry.status = "processing"
-            queue_entry.started_at = datetime.now(UTC)
+            queue_entry.started_at = datetime.now(timezone.utc)
         if queue_entries:
             db.session.flush()
             db.session.commit()
@@ -147,7 +147,7 @@ class DatabaseQueueDispatcher:
         stale_after_seconds: float,
         target_agent: str | None = None,
     ) -> list[TaskQueue]:
-        cutoff = datetime.now(UTC) - timedelta(seconds=stale_after_seconds)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)
         query = TaskQueue.query.filter(
             TaskQueue.status == "processing",
             TaskQueue.started_at.isnot(None),
@@ -177,7 +177,7 @@ class DatabaseQueueDispatcher:
             "failed": TaskQueue.query.filter_by(status="failed").count(),
         }
         if stale_after_seconds is not None:
-            cutoff = datetime.now(UTC) - timedelta(seconds=stale_after_seconds)
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)
             summary["stale_processing"] = (
                 TaskQueue.query.filter(
                     TaskQueue.status == "processing",
@@ -197,7 +197,7 @@ class DatabaseQueueDispatcher:
         runtime_metadata: dict | None = None,
     ) -> TaskQueue:
         queue_entry.status = "completed" if success else "failed"
-        queue_entry.completed_at = datetime.now(UTC)
+        queue_entry.completed_at = datetime.now(timezone.utc)
         queue_entry.error_message = None if success else detail
         queue_entry.clawdbot_session_key = runtime_session_key
         queue_entry.runtime_metadata_json = runtime_metadata or {}

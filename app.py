@@ -457,6 +457,8 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": str(exc)}), 404
         except (TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
         return jsonify(planner_service.serialize_plan(plan)), 201
 
     @app.route("/api/blueprints/<int:blueprint_id>/scrum-plan/replan", methods=["POST"])
@@ -481,7 +483,39 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": str(exc)}), 404
         except (TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
         return jsonify(planner_service.serialize_plan(plan)), 201
+
+    @app.route("/api/blueprints/<int:blueprint_id>/scrum-plan/<int:plan_id>/approve", methods=["POST"])
+    def approve_scrum_plan(blueprint_id: int, plan_id: int):
+        planner_service = app.extensions["autonomous_scrum_service"]
+        data = request.get_json(silent=True) or {}
+        try:
+            plan = planner_service.approve_plan(
+                blueprint_id,
+                plan_id=plan_id,
+                source=data.get("source", "manual"),
+                feedback_text=data.get("feedback_text"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(planner_service.serialize_plan(plan))
+
+    @app.route("/api/blueprints/<int:blueprint_id>/scrum-plan/sprint-view", methods=["GET"])
+    def scrum_plan_sprint_view(blueprint_id: int):
+        planner_service = app.extensions["autonomous_scrum_service"]
+        try:
+            payload = planner_service.build_sprint_view(
+                blueprint_id,
+                plan_id=request.args.get("plan_id", type=int),
+                status=request.args.get("status", default="latest", type=str),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        return jsonify(payload)
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):

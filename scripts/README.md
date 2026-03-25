@@ -12,7 +12,7 @@ scripts/
 ├── jarvis-pm-heartbeat.sh     # Wrapper bash para PM
 ├── jarvis-qa-direct.py        # Responder directo de Jarvis-QA
 ├── jarvis-qa-heartbeat.sh     # Wrapper bash para QA
-├── e2e_validate_mission_control.py  # Test E2E local (PM/Dev/QA + orchestrator)
+├── e2e_validate_mission_control.py  # Test E2E local (PM/Dev/QA + Fase 4 Scrum + orchestrator)
 └── README.md                  # Este archivo
 ```
 
@@ -70,11 +70,27 @@ Mission Control es el orquestador central de comunicación entre agentes.
 ## Test E2E rápido
 
 ```bash
-python3 scripts/e2e_validate_mission_control.py --allow-missing-langgraph
+./.venv/bin/python scripts/e2e_validate_mission_control.py --allow-missing-langgraph
 ```
+
+Este flujo ahora valida tambien:
+
+- import real de blueprint via HTTP
+- `Scrum Planning Crew` obligatorio antes de persistir el plan
+- escalamiento `bedrock_review`
+- `approval_status` + aprobacion manual
+- vista consolidada `/scrum-plan/sprint-view`
 
 Si quieres validación estricta de LangGraph (falla si falta dependencia):
 
 ```bash
-python3 scripts/e2e_validate_mission_control.py
+./.venv/bin/python scripts/e2e_validate_mission_control.py
+```
+
+Para correr el flujo de Fase 4 contra un proyecto real con `requirements.md` y `roadmap.md`:
+
+```bash
+./.venv/bin/python scripts/e2e_validate_mission_control.py \
+  --allow-missing-langgraph \
+  --project-root /ruta/al/proyecto
 ```

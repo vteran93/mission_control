@@ -558,6 +558,7 @@ class ScrumPlanRecord(db.Model):
     project_blueprint_id = db.Column(db.Integer, db.ForeignKey('project_blueprints.id'), nullable=False, index=True)
     version = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(50), nullable=False, default='active', index=True)
+    approval_status = db.Column(db.String(50), nullable=False, default='draft', index=True)
     planning_mode = db.Column(db.String(50), nullable=False, default='autonomous', index=True)
     source = db.Column(db.String(100), nullable=False, default='heuristic')
     sprint_capacity = db.Column(db.Integer, nullable=False)
@@ -585,6 +586,7 @@ class ScrumPlanRecord(db.Model):
             'project_blueprint_id': self.project_blueprint_id,
             'version': self.version,
             'status': self.status,
+            'approval_status': self.approval_status,
             'planning_mode': self.planning_mode,
             'source': self.source,
             'sprint_capacity': self.sprint_capacity,

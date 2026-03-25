@@ -359,11 +359,18 @@ Estado actual:
 Tickets:
 
 - `AG-401` cumplido: backlog inicial, orden por dependencias, estimacion heuristica a story points y asignacion de sprint.
-- `AG-402` parcial: existe seed `planning`, contexto runtime y API-first para consumir el plan; falta ejecutar un `Scrum Planning Crew` dedicado como etapa obligatoria del planner.
+- `AG-402` cumplido: el planner ejecuta un `Scrum Planning Crew` real sobre CrewAI antes de persistir y solo promueve a `active` los planes aprobados.
 - `AG-403` cumplido: `Definition of Ready` y `Definition of Done` por ticket persistidos en `scrum_plan_items`.
 - `AG-404` cumplido: endpoint de `replan` con versionado, supersede del plan activo y tratamiento de `blocked_ticket_ids` / `changed_ticket_ids`.
 - `AG-405` cumplido: ceremonias persistidas en `sprint_stage_events` (`planning`, `daily_summary`, `review`, `retrospective`) y feedback de planning en `stage_feedback`.
 - `AG-406` cumplido: score de riesgo por ticket y sprint, `confidence_score` del plan y `escalation_trigger` canonico.
+
+Cierre de Fase 4:
+
+- [x] Convertir `AG-402` en flujo obligatorio: ejecutar un `Scrum Planning Crew` real sobre CrewAI antes de persistir o aprobar el plan.
+- [x] Conectar el escalamiento de `risk_level` / `confidence_score` a Bedrock como planner o reviewer senior cuando el trigger sea `bedrock_review`.
+- [x] Añadir estado de aprobacion del plan (`draft`, `review_required`, `approved`) para separar plan heuristico de plan listo para ejecucion autonoma.
+- [x] Exponer vista/API consolidada por sprint con capacidad consumida, tickets bloqueados y readiness del sprint para operar Fase 5 sin inspeccion manual.
 
 Criterios de aceptacion:
 

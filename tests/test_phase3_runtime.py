@@ -1,7 +1,7 @@
 import importlib
 import sys
 import types
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def clear_runtime_modules():
@@ -193,16 +193,18 @@ def test_runtime_exposes_tools_and_crew_seeds(tmp_path, monkeypatch):
     assert "workspace_package_manager_context" in tool_names
     assert "mission_control_execution_report" in tool_names
     assert "mission_control_scrum_plan_context" in tool_names
+    assert "mission_control_sprint_readiness_view" in tool_names
 
     assert seeds_response.status_code == 200
     seeds_payload = seeds_response.get_json()
-    assert set(seeds_payload) == {"intake", "planning", "delivery", "review", "retro"}
+    assert set(seeds_payload) == {"intake", "planning", "scrum_planning", "delivery", "review", "retro"}
     assert seeds_payload["intake"]["tool_groups"] == ["mission_control", "workspace_context"]
+    assert seeds_payload["scrum_planning"]["role"] == "Scrum Planning Lead"
     assert seeds_payload["retro"]["role"] == "Retrospective Facilitator"
 
     assert health_response.status_code == 200
     health_payload = health_response.get_json()
-    assert health_payload["toolkit"]["tool_count"] >= 10
+    assert health_payload["toolkit"]["tool_count"] >= 11
     assert "retro" in health_payload["toolkit"]["crew_seeds"]
 
 
@@ -411,7 +413,7 @@ def test_runtime_recover_queue_requeues_abandoned_processing_entries(tmp_path, m
     with app.app_context():
         queue_entry = app_module.db.session.get(app_module.TaskQueue, queue_entry_id)
         queue_entry.status = "processing"
-        queue_entry.started_at = datetime.now(UTC) - timedelta(minutes=10)
+        queue_entry.started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
         app_module.db.session.commit()
 
     recover_response = client.post("/api/runtime/recover-queue", json={"stale_after_seconds": 60})

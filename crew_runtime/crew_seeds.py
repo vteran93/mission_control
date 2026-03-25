@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-VALID_CREW_SEEDS = {"intake", "planning", "delivery", "review", "retro"}
+VALID_CREW_SEEDS = {"intake", "planning", "scrum_planning", "delivery", "review", "retro"}
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,16 @@ CREW_SEEDS: dict[str, CrewSeed] = {
         goal="Plan the next best action and unblock the requested work item.",
         backstory="You orchestrate engineering work with a pragmatic delivery mindset.",
         expected_output="A concise planning response with next action, risks, and decision.",
+        tool_groups=("mission_control", "workspace_context"),
+    ),
+    "scrum_planning": CrewSeed(
+        name="scrum_planning",
+        role="Scrum Planning Lead",
+        goal="Review a candidate sprint plan, decide its readiness, and return an approval verdict.",
+        backstory="You act as the mandatory Scrum Planning Crew before Mission Control persists or approves a plan.",
+        expected_output=(
+            "JSON with approval_status, summary, risks, and actions for the candidate Scrum plan."
+        ),
         tool_groups=("mission_control", "workspace_context"),
     ),
     "delivery": CrewSeed(
