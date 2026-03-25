@@ -11,7 +11,7 @@
 - [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
 - [ ] Fase 3 - CrewAI Runtime Hybrid (runtime operativo validado; escalamiento real a Bedrock sigue pendiente)
 - [ ] Fase 4 - Autonomous Scrum Planner (slice inicial entregado: scrum plan versionado, replanificacion, ceremonias y score de riesgo)
-- [ ] Fase 5 - Autonomous Delivery Loop
+- [ ] Fase 5 - Autonomous Delivery Loop (slice semiautomatico entregado: ejecucion de tickets ready, escritura de artefactos simples a disco y QA basico)
 - [ ] Fase 6 - GitHub + Operator UX
 - [ ] Fase 7 - Hardening & Benchmark
 
@@ -381,6 +381,12 @@ Criterios de aceptacion:
 ### Fase 5 - Autonomous Delivery Loop
 
 Objetivo: ejecutar implementacion end-to-end sin intervencion humana continua.
+
+Avance del slice semiautomatico:
+
+- `AG-501` slice inicial cumplido: endpoint/API de delivery semiautomatico toma tickets `planned` + `ready` desde un `scrum_plan` aprobado y escribe artefactos reales en un `workspace_root`.
+- `AG-503` slice inicial cumplido: QA gate basico valida artefactos deterministas por receta (`python`, `react`, `terraform`) antes de cerrar la ejecucion.
+- `AG-504` slice inicial cumplido: artifacts escritos a disco quedan registrados en `artifacts`, con `agent_runs`, `task_executions` y `stage_events` de `execution` / `qa_gate`.
 
 Tickets:
 

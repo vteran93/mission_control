@@ -9,6 +9,15 @@ import re
 
 def load_module(module_name: str):
     sys.modules.pop(module_name, None)
+    if module_name == "app":
+        for loaded_module in list(sys.modules):
+            if (
+                loaded_module.startswith("autonomous_delivery")
+                or loaded_module.startswith("autonomous_scrum")
+                or loaded_module.startswith("delivery_tracking")
+                or loaded_module.startswith("crew_runtime")
+            ):
+                sys.modules.pop(loaded_module, None)
     return importlib.import_module(module_name)
 
 

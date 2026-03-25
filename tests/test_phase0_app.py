@@ -7,6 +7,14 @@ import pytest
 
 def load_app_module():
     sys.modules.pop("app", None)
+    for module_name in list(sys.modules):
+        if (
+            module_name.startswith("autonomous_delivery")
+            or module_name.startswith("autonomous_scrum")
+            or module_name.startswith("delivery_tracking")
+            or module_name.startswith("crew_runtime")
+        ):
+            sys.modules.pop(module_name, None)
     return importlib.import_module("app")
 
 

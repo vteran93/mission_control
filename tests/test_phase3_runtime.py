@@ -8,6 +8,8 @@ def clear_runtime_modules():
     for module_name in list(sys.modules):
         if (
             module_name in {"app", "config", "database"}
+            or module_name.startswith("autonomous_delivery")
+            or module_name.startswith("autonomous_scrum")
             or module_name.startswith("crew_runtime")
             or module_name.startswith("spec_intake")
             or module_name.startswith("delivery_tracking")

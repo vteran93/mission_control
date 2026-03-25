@@ -4,7 +4,8 @@
 This script validates three layers over a real HTTP server:
 1. Core PM/Dev/QA workflow.
 2. Phase 4 autonomous scrum workflow with mandatory CrewAI planning.
-3. OpenClaw orchestrator imports and LangGraph wiring.
+3. Phase 5 semi-automatic delivery workflow that writes real files to disk.
+4. OpenClaw orchestrator imports and LangGraph wiring.
 
 The Phase 4 path is deterministic: the script injects a temporary fake
 ``crewai`` package through ``PYTHONPATH`` so the runtime can execute
@@ -511,6 +512,87 @@ def write_phase4_specs(fixtures_dir: Path) -> dict[str, tuple[Path, Path]]:
     }
 
 
+def write_phase5_specs(fixtures_dir: Path) -> tuple[Path, Path]:
+    phase5_requirements = fixtures_dir / "phase5_requirements.md"
+    phase5_roadmap = fixtures_dir / "phase5_roadmap.md"
+
+    phase5_requirements.write_text(
+        textwrap.dedent(
+            """
+            # Mission Control Phase 5
+            ## Objetivo
+            - Debe ejecutar un modo semiautomatico para artefactos simples
+            - Debe escribir archivos reales en disco dentro del workspace objetivo
+            - Debe dejar evidencia de ejecucion en Postgres
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    phase5_roadmap.write_text(
+        textwrap.dedent(
+            """
+            # Roadmap
+            **Proyecto**: Mission Control Phase 5
+
+            ## EP-5 · Autonomous Delivery Loop
+            > Objetivo: materializar artefactos simples en modo semiautomatico.
+
+            ### TICKET-501 · Escribir examples/holamundo.py
+            ```
+            Tipo: feature
+            Prioridad: P0
+            Est.: 1 h
+            Deps.: ninguna
+            ```
+
+            **Descripción**
+            Crear un archivo Python en examples/holamundo.py que imprima Hola Mundo.
+
+            **Criterios de aceptación**
+            - [ ] Existe examples/holamundo.py
+            - [ ] El script imprime Hola Mundo al ejecutarse
+
+            ### TICKET-502 · Escribir pagina React Hola Mundo en frontend
+            ```
+            Tipo: feature
+            Prioridad: P1
+            Est.: 2 h
+            Deps.: ninguna
+            ```
+
+            **Descripción**
+            Crear una pagina web con React JS Hola Mundo en una carpeta frontend.
+
+            **Criterios de aceptación**
+            - [ ] Existe frontend/index.html
+            - [ ] La pagina monta un root de React
+            - [ ] La pagina muestra Hola Mundo
+
+            ### TICKET-503 · Escribir modulo Terraform S3 en infra
+            ```
+            Tipo: feature
+            Prioridad: P1
+            Est.: 2 h
+            Deps.: ninguna
+            ```
+
+            **Descripción**
+            Crear un modulo de Terraform con un recurso S3 basico en una carpeta infra.
+
+            **Criterios de aceptación**
+            - [ ] Existe infra/main.tf
+            - [ ] El modulo declara aws_s3_bucket.basic
+            - [ ] El bucket usa una variable bucket_name
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    return phase5_requirements, phase5_roadmap
+
+
 def import_blueprint(base_url: str, requirements_path: Path, roadmap_path: Path) -> dict[str, Any]:
     status, payload = api_call(
         base_url,
@@ -753,6 +835,104 @@ def validate_phase4_real_project_workflow(
     }
 
 
+def validate_phase5_semiautomatic_delivery(
+    base_url: str,
+    fixtures_dir: Path,
+    responses_path: Path,
+    workspace_root: Path,
+) -> dict[str, Any]:
+    """Validate the semi-automatic delivery slice over the public HTTP API."""
+
+    requirements_path, roadmap_path = write_phase5_specs(fixtures_dir)
+    set_fake_crewai_outputs(
+        responses_path,
+        [approved_review("Planning crew aprueba el plan para delivery semiautomatico.")],
+    )
+    blueprint = import_blueprint(base_url, requirements_path, roadmap_path)
+    blueprint_id = blueprint["id"]
+
+    status, plan = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/scrum-plan",
+        {"sprint_capacity": 12},
+    )
+    if status != 201:
+        raise RuntimeError(f"Cannot create phase 5 scrum plan: status={status}, body={plan}")
+    if plan["approval_status"] != "approved":
+        raise RuntimeError(f"Phase 5 plan did not reach approved state: {plan}")
+
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    status, execution = api_call(
+        base_url,
+        "POST",
+        f"/api/blueprints/{blueprint_id}/delivery/execute",
+        {
+            "workspace_root": str(workspace_root),
+            "execution_mode": "semi_automatic",
+        },
+    )
+    if status != 201:
+        raise RuntimeError(f"Cannot execute phase 5 delivery: status={status}, body={execution}")
+    if execution["summary"]["ok"] is not True:
+        raise RuntimeError(f"Phase 5 delivery reported validation failures: {execution}")
+
+    python_script = workspace_root / "examples" / "holamundo.py"
+    react_page = workspace_root / "frontend" / "index.html"
+    terraform_main = workspace_root / "infra" / "main.tf"
+    terraform_variables = workspace_root / "infra" / "variables.tf"
+    terraform_outputs = workspace_root / "infra" / "outputs.tf"
+
+    for required_path in (
+        python_script,
+        react_page,
+        terraform_main,
+        terraform_variables,
+        terraform_outputs,
+    ):
+        if not required_path.is_file():
+            raise RuntimeError(f"Phase 5 artifact missing from workspace: {required_path}")
+
+    python_result = subprocess.run(
+        [sys.executable, str(python_script)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if python_result.returncode != 0 or python_result.stdout.strip() != "Hola Mundo":
+        raise RuntimeError(
+            "Phase 5 Python artifact did not execute correctly: "
+            f"returncode={python_result.returncode}, stdout={python_result.stdout!r}, stderr={python_result.stderr!r}"
+        )
+
+    react_content = react_page.read_text(encoding="utf-8")
+    if "createRoot" not in react_content or "Hola Mundo" not in react_content:
+        raise RuntimeError(f"Phase 5 React artifact is incomplete: {react_page}")
+
+    terraform_content = terraform_main.read_text(encoding="utf-8")
+    if 'resource "aws_s3_bucket" "basic"' not in terraform_content:
+        raise RuntimeError(f"Phase 5 Terraform artifact is incomplete: {terraform_main}")
+
+    status, report = api_call(base_url, "GET", f"/api/blueprints/{blueprint_id}/report")
+    if status != 200:
+        raise RuntimeError(f"Cannot read phase 5 report: status={status}, body={report}")
+    if report["counts"]["artifacts"] != 5:
+        raise RuntimeError(f"Unexpected phase 5 artifact count: {report}")
+
+    return {
+        "blueprint_id": blueprint_id,
+        "plan_id": plan["id"],
+        "plan_version": plan["version"],
+        "workspace_root": str(workspace_root),
+        "written_file_count": execution["summary"]["written_file_count"],
+        "executed_item_count": execution["summary"]["executed_item_count"],
+        "artifact_count": report["counts"]["artifacts"],
+        "agent_run_count": report["counts"]["agent_runs"],
+        "task_execution_count": report["counts"]["task_executions"],
+    }
+
+
 def validate_langgraph_wiring(allow_missing: bool) -> dict[str, Any]:
     """Validate orchestrator package and LangGraph integration."""
 
@@ -886,6 +1066,7 @@ def main() -> int:
         fake_crewai_root = temp_root / "fake_site"
         responses_path = temp_root / "fake_crewai_responses.json"
         fixtures_dir = temp_root / "fixtures"
+        phase5_workspace = temp_root / "phase5_workspace"
         create_fake_crewai_package(fake_crewai_root, responses_path)
         env = prepare_e2e_env(
             repo_root,
@@ -920,6 +1101,12 @@ def main() -> int:
                 )
             else:
                 phase4_result = validate_phase4_scrum_workflow(base_url, fixtures_dir, responses_path)
+            phase5_result = validate_phase5_semiautomatic_delivery(
+                base_url,
+                fixtures_dir,
+                responses_path,
+                phase5_workspace,
+            )
             langgraph_result = validate_langgraph_wiring(args.allow_missing_langgraph)
 
             print(
@@ -929,6 +1116,7 @@ def main() -> int:
                         "base_url": base_url,
                         "three_agent_flow": api_result,
                         "phase4_scrum_flow": phase4_result,
+                        "phase5_semiautomatic_delivery": phase5_result,
                         "orchestrator_validation": langgraph_result,
                     },
                     indent=2,

@@ -12,7 +12,7 @@ scripts/
 ├── jarvis-pm-heartbeat.sh     # Wrapper bash para PM
 ├── jarvis-qa-direct.py        # Responder directo de Jarvis-QA
 ├── jarvis-qa-heartbeat.sh     # Wrapper bash para QA
-├── e2e_validate_mission_control.py  # Test E2E local (PM/Dev/QA + Fase 4 Scrum + orchestrator)
+├── e2e_validate_mission_control.py  # Test E2E local (PM/Dev/QA + Fase 4 Scrum + Fase 5 semiautomatica + orchestrator)
 └── README.md                  # Este archivo
 ```
 
@@ -80,6 +80,7 @@ Este flujo ahora valida tambien:
 - escalamiento `bedrock_review`
 - `approval_status` + aprobacion manual
 - vista consolidada `/scrum-plan/sprint-view`
+- modo semiautomatico de delivery con escritura real a `examples/`, `frontend/` e `infra/`
 
 Si quieres validación estricta de LangGraph (falla si falta dependencia):
 
@@ -94,3 +95,26 @@ Para correr el flujo de Fase 4 contra un proyecto real con `requirements.md` y `
   --allow-missing-langgraph \
   --project-root /ruta/al/proyecto
 ```
+
+## Delivery semiautomatico
+
+Endpoint disponible:
+
+```bash
+POST /api/blueprints/<blueprint_id>/delivery/execute
+```
+
+Payload minimo:
+
+```json
+{
+  "workspace_root": "/ruta/al/workspace",
+  "execution_mode": "semi_automatic"
+}
+```
+
+El slice actual ejecuta tickets `planned` + `ready` de un `scrum_plan` aprobado y soporta recetas deterministas para:
+
+- `examples/holamundo.py`
+- `frontend/index.html` con React
+- `infra/*.tf` con un modulo S3 basico

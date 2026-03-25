@@ -9,6 +9,7 @@ def load_app_stack():
     for module_name in list(sys.modules):
         if (
             module_name in {"app", "config", "database"}
+            or module_name.startswith("autonomous_delivery")
             or module_name.startswith("spec_intake")
             or module_name.startswith("delivery_tracking")
             or module_name.startswith("autonomous_scrum")

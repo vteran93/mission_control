@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from flask import Flask, current_app, jsonify, render_template, request
 from flask_cors import CORS
 
+from autonomous_delivery import AutonomousDeliveryService
 from autonomous_scrum import AutonomousScrumPlannerService
 from config import load_settings
 from crew_runtime import AgenticRuntime
@@ -69,6 +70,9 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     app.extensions["blueprint_persistence_service"] = BlueprintPersistenceService()
     app.extensions["delivery_tracking_service"] = DeliveryTrackingService()
     app.extensions["autonomous_scrum_service"] = AutonomousScrumPlannerService()
+    app.extensions["autonomous_delivery_service"] = AutonomousDeliveryService(
+        app.config["MISSION_CONTROL_BASE_DIR"]
+    )
     register_routes(app)
     return app
 
@@ -516,6 +520,28 @@ def register_routes(app: Flask) -> None:
         except LookupError as exc:
             return jsonify({"error": str(exc)}), 404
         return jsonify(payload)
+
+    @app.route("/api/blueprints/<int:blueprint_id>/delivery/execute", methods=["POST"])
+    def execute_delivery_plan(blueprint_id: int):
+        delivery_service = app.extensions["autonomous_delivery_service"]
+        data = request.get_json(silent=True) or {}
+        try:
+            payload = delivery_service.execute_plan(
+                blueprint_id=blueprint_id,
+                workspace_root=data.get("workspace_root"),
+                plan_id=data.get("plan_id"),
+                sprint_order=data.get("sprint_order"),
+                item_limit=data.get("item_limit"),
+                ticket_ids=data.get("ticket_ids"),
+                execution_mode=data.get("execution_mode", "semi_automatic"),
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        return jsonify(payload), 201
 
     @app.route("/api/agents/<int:agent_id>", methods=["PUT"])
     def update_agent(agent_id: int):

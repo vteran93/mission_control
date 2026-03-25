@@ -14,6 +14,8 @@ def load_app_stack():
         if (
             module_name == "app"
             or module_name == "database"
+            or module_name.startswith("autonomous_delivery")
+            or module_name.startswith("autonomous_scrum")
             or module_name.startswith("spec_intake")
             or module_name.startswith("delivery_tracking")
         ):
