@@ -2,7 +2,7 @@
 
 **Fecha base**: 2026-03-21  
 **Estado base**: `mission_control` ya tiene Flask + Postgres operativos, pero el runtime sigue acoplado a OpenClaw/Clawbot.  
-**Objetivo macro**: convertir `mission_control` en una software factory `CrewAI-only` capaz de leer documentos de especificacion como `docs/example_input_project/requirements.md` y `docs/example_input_project/roadmap.md`, construir el plan de entrega, ejecutar el desarrollo y cerrar el ciclo SCRUM completo de forma desatendida.
+**Objetivo macro**: convertir `mission_control` en una software factory `CrewAI-only` capaz de ingerir desde un par formal `requirements.md` + `roadmap.md` hasta una idea expresada en lenguaje natural por chat web, cerrar gaps con un agente arquitecto aguas arriba y producir un paquete formal de requerimientos listo para planificar, ejecutar y cerrar el ciclo SCRUM completo de forma desatendida.
 
 ## Estado de ejecucion
 
@@ -15,19 +15,33 @@
 - [ ] Fase 6 - GitHub + Operator UX
 - [ ] Fase 7 - Hardening & Benchmark
 
+## Cobertura actual del intake
+
+- [x] Nivel A - `requirements.md` + `roadmap.md` con estructura canonica y tickets parseables.
+- [ ] Nivel B - dossier semiestructurado como `docs/example_project_2/VEO3_CLAUDE_INTEGRATION_ROADMAP.md` mas anexos.
+- [ ] Nivel C - conjunto variable de artefactos (`notes`, `adr`, diagramas, roadmap-only, brief tecnico).
+- [ ] Nivel D - solo casos de uso, restricciones de negocio y objetivos.
+- [ ] Nivel E - conversacion iterativa por chat web con el operador.
+- [ ] Modo `architect close-the-gap` para emitir `requirements.generated.md`, `roadmap.generated.md`, `assumptions.md`, `open_questions.md` y `confidence_score`.
+
+Conclusion de esta revision: el roadmap actual cubre bien el Nivel A, pero todavia no declaraba con suficiente precision el camino para los niveles B-E; la ampliacion queda incorporada en Fase 1, Fase 6 y Fase 7.
+
 ## Resultado esperado
 
 Al terminar este roadmap, Mission Control debe poder:
 
 1. Ingerir documentos de requerimientos y roadmap en Markdown.
-2. Normalizarlos a un `Project Blueprint` persistido en Postgres.
-3. Generar backlog, epics, sprints, criterios de aceptacion y dependencias.
-4. Ejecutar crews de CrewAI para arquitectura, desarrollo, QA, code review, documentacion y release.
-5. Usar modelos locales de Ollama como fuerza de trabajo principal.
-6. Usar modelos Bedrock como orquestadores, senior reviewers, tomadores de decision y desbloqueadores.
-7. Sincronizar repositorio, issues, branches, PRs y artifacts con GitHub.
-8. Registrar en Postgres el tracking completo de ejecucion, feedback por etapa SCRUM y retrospectivas.
-9. Operar sin intervencion humana continua; el humano solo configura credenciales, proveedores y conectores como GitHub, Ollama y Bedrock.
+2. O, si esos documentos no existen aun, ingerir un set variable de artefactos o una conversacion de chat y convertirlo en un paquete formal derivado con trazabilidad.
+3. Normalizarlos a un `Project Blueprint` persistido en Postgres.
+4. Generar backlog, epics, sprints, criterios de aceptacion y dependencias.
+5. Ejecutar crews de CrewAI para arquitectura, desarrollo, QA, code review, documentacion y release.
+6. Usar modelos locales de Ollama como fuerza de trabajo principal.
+7. Usar modelos Bedrock como orquestadores, senior reviewers, tomadores de decision y desbloqueadores.
+8. Sincronizar repositorio, issues, branches, PRs y artifacts con GitHub.
+9. Registrar en Postgres el tracking completo de ejecucion, feedback por etapa SCRUM y retrospectivas.
+10. Operar sin intervencion humana continua; el humano solo configura credenciales, proveedores y conectores como GitHub, Ollama y Bedrock, y responde preguntas abiertas cuando el `confidence_score` del intake no alcance el umbral.
+11. Usar un agente arquitecto para hacer `close-the-gap` entre casos de uso, restricciones, decisiones implicitas y un documento formal de requerimientos.
+12. Permitir que ese `close-the-gap` empiece desde una interfaz de chat web en la que el usuario describe la idea del producto en lenguaje natural.
 
 ## Principios no negociables
 
@@ -37,29 +51,88 @@ Al terminar este roadmap, Mission Control debe poder:
 - Estrategia `local-first`: Ollama ejecuta los workers por defecto; Bedrock entra por complejidad, ambiguedad, desbloqueo, revision o escalamiento.
 - No se depende de OpenClaw, Clawbot ni colas filesystem en el camino principal.
 - El sistema debe poder correr sin prompts hardcodeados por proyecto; los insumos vienen de documentos y configuracion.
+- El contrato de entrada es progresivo: el sistema no exige un `shape` unico mientras exista suficiente senal para formalizar.
+- Cuando falten artefactos canonicos, el intake debe generar borradores estructurados, supuestos explicitos y preguntas abiertas antes de planificar entrega.
+- El agente arquitecto no inventa silenciosamente: toda inferencia debe quedar marcada con trazabilidad a fuente, `confidence_score` y posibilidad de aprobacion humana.
+- El intake debe poder operar en modo conversacional: preguntar, refinar y confirmar alcance antes de congelar `requirements.generated.md` y `roadmap.generated.md`.
 - Cada etapa debe dejar evidencia reproducible: entrada, decision, output, validacion y costo/latencia del modelo.
 
-## Lectura del caso de ejemplo
+## Contratos de entrada soportados
 
-Los documentos de `docs/example_input_project/` dejan claro el contrato de entrada que Mission Control debe soportar:
+Mission Control debe soportar una escala de inputs, no un unico formato duro:
 
-- `requirements.md` describe arquitectura objetivo, agentes, tools, modelos de datos, flujo de ejecucion y criterios de negocio.
-- `roadmap.md` describe la descomposicion de entrega en epics, tickets, dependencias, estimaciones y criterios de aceptacion.
+- Nivel A - Par formal: `docs/example_input_project/requirements.md` + `docs/example_input_project/roadmap.md`.
+  Aqui los artefactos ya vienen casi listos para parsing estructurado.
+- Nivel B - Dossier semiestructurado: `docs/example_project_2/VEO3_CLAUDE_INTEGRATION_ROADMAP.md` + anexos como `AGENTIC_WORKFLOW_CLASS_DIAGRAM.md`.
+  Aqui hay decisiones, hallazgos, fases, restricciones y arquitectura, pero no necesariamente `EP-*` o `TICKET-*` parseables.
+- Nivel C - Brief acotado: una combinacion de casos de uso, integraciones, restricciones, objetivos de negocio y notas tecnicas.
+- Nivel D - Idea abierta: solo casos de uso, actores, outcomes esperados y limites operativos.
+- Nivel E - Chat web: una conversacion iterativa entre operador y agente arquitecto, donde el sistema extrae requerimientos, detecta vacios y hace preguntas de aclaracion.
 
-Mission Control debe convertir ambos documentos en una estructura canonica unica:
+El flujo correcto para todos los niveles es:
+
+1. Clasificar el `shape` del input y medir completitud.
+2. Extraer evidencia estructurable por seccion, documento y fragmento.
+3. Activar un agente arquitecto cuando falte informacion formal o haya decisiones implicitas.
+4. Emitir un `input certificado` consumible por planning, delivery y los contratos internos del sistema.
+
+Ese `input certificado` debe incluir:
 
 - `Project Blueprint`
 - `Capability Map`
+- `Formal Requirements Document`
+- `Formal Roadmap Document`
 - `Execution Plan`
 - `Backlog`
 - `Sprint Plan`
 - `Acceptance Matrix`
+- `Assumptions Register`
+- `Open Questions`
+- `Traceability Map`
+- `confidence_score`
+- `certification_status`
+
+`certification_status` debe ser uno de:
+
+- `ready_for_planning`
+- `needs_operator_review`
+- `insufficient_input`
+
+Estado actual del repositorio: el slice implementado cubre sobre todo el Nivel A. Los niveles B-E requieren una ampliacion explicita del intake, el contrato API y el rol del arquitecto para cerrar cada input hacia este `input certificado`.
+
+## Flujo conversacional objetivo
+
+El modo objetivo de intake debe permitir este patron:
+
+1. El operador abre una interfaz de chat web y describe la idea en lenguaje natural.
+2. El agente arquitecto clasifica dominio, actores, modulos, restricciones y vacios.
+3. Si faltan datos criticos, hace preguntas de aclaracion dentro del mismo chat.
+4. Cuando la confianza sea suficiente, genera:
+   - `requirements.generated.md`
+   - `roadmap.generated.md`
+   - `assumptions.md`
+   - `open_questions.md`
+5. El sistema consolida esos artefactos en un `input certificado`.
+6. El operador revisa y aprueba ese paquete antes de pasar a planning.
+
+Ejemplo objetivo:
+
+- Input via chat:
+  `Quiero un sistema de gestion de firmas de recursos humanos donde puedan contratar, firmar contrato usando ethereum contracts, que los empleados registren su asistencia, hora de inicio de labores en una aplicacion windows/linux/mac os, que registren tareas y calcular salarios por hora para cada empleado de acuerdo a tarifas por individuo.`
+- Output esperado:
+  un `requirements.generated.md` formal con modulos como reclutamiento/contratacion, firma de contratos on-chain, desktop attendance app multiplataforma, task tracking y payroll por tarifa individual; un `roadmap.generated.md` ejecutable con epics, tickets, dependencias y criterios de aceptacion; y un `input certificado` listo para nuestros contratos internos de planning.
+
+Flujo adicional obligatorio:
+
+- Si el input es un dossier como `docs/example_project_2/*`, el sistema no debe limitarse a resumirlo.
+- Debe hacer `close-the-gap` hasta producir exactamente el mismo tipo de `input certificado` que produciria desde un chat o desde un par formal.
 
 ## Arquitectura target
 
 ```text
                            +----------------------------------+
                            |  UI de configuracion minima      |
+                           |  + chat de discovery/spec intake |
                            |  - API keys                      |
                            |  - GitHub repo / org             |
                            |  - perfiles de modelos           |
@@ -99,8 +172,11 @@ Mission Control debe convertir ambos documentos en una estructura canonica unica
 ## Crew topology objetivo
 
 ### 1. Intake Crew
-- `spec_analyst` (Bedrock): interpreta `requirements.md`, `roadmap.md`, extrae requerimientos funcionales/no funcionales y detecta contradicciones.
-- `delivery_analyst` (Bedrock): transforma el roadmap fuente en backlog ejecutable con dependencias, estimaciones y Definition of Done.
+- `conversation_intake_facilitator` (Bedrock): conduce la conversacion inicial, resume cada turno, detecta vacios y decide cuando pedir aclaraciones.
+- `spec_analyst` (Bedrock): clasifica el `shape` de entrada, interpreta uno o varios artefactos, extrae requerimientos funcionales/no funcionales y detecta contradicciones.
+- `requirements_normalizer` (Bedrock): convierte insumos abiertos o desbalanceados en un `requirements formal` con trazabilidad, constraints y acceptance hints.
+- `delivery_analyst` (Bedrock): transforma el roadmap fuente o el roadmap generado en backlog ejecutable con dependencias, estimaciones y Definition of Done.
+- `architecture_synthesizer` (Bedrock): hace `close-the-gap`, explicita supuestos, contratos tecnicos iniciales, ADRs bootstrap y preguntas abiertas antes de pasar a planning.
 
 ### 2. Planning Crew
 - `product_manager` (Bedrock): define alcance, roadmap ejecutable y prioridades.
@@ -193,7 +269,10 @@ Reemplazar o retirar del camino principal:
 
 Mission Control solo se considera listo cuando cumple todo esto:
 
-- Dado un `requirements.md` y un `roadmap.md`, genera un `Project Blueprint` sin edicion manual.
+- Dado un set de artefactos de entrada, desde `requirements.md` + `roadmap.md` hasta un roadmap narrativo con anexos o solo casos de uso, genera un `Project Blueprint` y un paquete formal derivado sin edicion manual obligatoria.
+- Dada una idea expresada por chat web, el sistema puede conducir discovery, aclarar vacios y producir `requirements.generated.md` + `roadmap.generated.md` antes de planificar.
+- Dado un dossier semiestructurado como `docs/example_project_2/*`, el sistema puede cerrarlo hasta el mismo `input certificado` que consumen los contratos internos de Mission Control.
+- Si faltan `requirements.md` o `roadmap.md`, el sistema puede generarlos de forma trazable antes de planificar.
 - Crea backlog, sprints y asignaciones de agentes en Postgres.
 - Ejecuta desarrollo, testing y review usando CrewAI sin depender de OpenClaw/Clawbot.
 - Usa Ollama como workforce principal y Bedrock como capa de orquestacion/escalamiento.
@@ -237,7 +316,15 @@ Criterios de aceptacion:
 
 ### Fase 1 - Spec Intake Engine
 
-Objetivo: que Mission Control entienda documentos como los del ejemplo y genere un modelo canonico del proyecto.
+Objetivo: que Mission Control entienda documentos formales, dossiers semiestructurados y briefs mas abiertos o mas cerrados, y genere tanto un modelo canonico del proyecto como un `input certificado` derivado cuando el input venga incompleto.
+
+Estado actual de la fase:
+
+- [x] Intake canonico desde `requirements.md` + `roadmap.md`.
+- [ ] Clasificador de `shape` y completitud del input.
+- [ ] Formalizacion derivada por agente arquitecto.
+- [ ] Soporte real para `roadmap-only`, `multi-artifact brief` y `use-case-only`.
+- [ ] Soporte real para intake conversacional desde chat web.
 
 Tickets:
 
@@ -248,12 +335,27 @@ Tickets:
 - `AG-105` Crear `Intake Crew` en CrewAI para producir blueprint validado y score de confianza.
 - `AG-106` Persistir versionado de specs y blueprint derivado.
 - `AG-107` Exponer endpoint/UI para cargar o registrar documentos fuente por proyecto.
+- `AG-108` Implementar `input shape classifier` para distinguir `formal_pair`, `roadmap_dossier`, `multi_artifact_brief` y `use_case_only`.
+- `AG-109` Crear `Requirements Normalizer` que genere `requirements.generated.md` cuando el input no traiga un documento canonico.
+- `AG-110` Crear `Architecture Synthesizer` para hacer `close-the-gap`: supuestos, NFRs candidatos, contratos tecnicos iniciales, ADR bootstrap y preguntas abiertas.
+- `AG-111` Cambiar el contrato logico de intake desde `requirements_path + roadmap_path` hacia `input_artifacts[]`, aunque el adapter inicial siga aceptando ambos campos para compatibilidad.
+- `AG-112` Definir `confidence_score`, `question_budget` y criterio de escalamiento humano para evitar que el arquitecto invente detalles sin evidencia suficiente.
+- `AG-113` Crear `conversation intake session` persistida: transcript, turnos, resumenes, preguntas abiertas, respuestas y estado de confianza.
+- `AG-114` Crear `Conversational Architect` aguas arriba para transformar chat web en `requirements.generated.md` y `roadmap.generated.md`.
+- `AG-115` Permitir ciclo iterativo de aclaraciones dentro del chat antes de congelar artefactos formales.
+- `AG-116` Exponer preview/diff y aprobacion de documentos generados desde chat antes de pasar a planning.
+- `AG-117` Definir el contrato canonico de `input certificado` para intake derivado, incluyendo `certification_status`, `confidence_score`, trazabilidad y paquete documental minimo.
+- `AG-118` Implementar `dossier-to-certified-input` para inputs como `docs/example_project_2/*`, cerrando gaps hasta el contrato canonico consumido por planning.
 
 Criterios de aceptacion:
 
-- El sistema puede leer los dos documentos de ejemplo y producir un blueprint unico.
+- El sistema puede leer los dos documentos de `docs/example_input_project/` y producir un blueprint unico.
+- El sistema puede leer `docs/example_project_2/` y derivar `requirements formal` + `roadmap estructurado` + `blueprint` con trazabilidad.
+- El sistema puede convertir `docs/example_project_2/*` en el mismo `input certificado` que produciria el intake desde un par formal o desde chat.
+- El sistema puede aceptar un input mas abierto o mas cerrado sin romper el intake; cuando falte informacion, deja supuestos y preguntas explicitas en vez de inventar silenciosamente.
+- El sistema puede partir de una idea escrita en chat web y convertirla en `requirements.generated.md` + `roadmap.generated.md` aprobables por operador.
 - El blueprint conserva trazabilidad a seccion y documento de origen.
-- Los conflictos entre documentos quedan marcados y pueden disparar escalamiento Bedrock.
+- Los conflictos, lagunas e inferencias quedan marcados con `confidence_score` y pueden disparar escalamiento Bedrock u operador humano.
 
 ### Fase 2 - Postgres Delivery Model
 
@@ -419,6 +521,7 @@ Estado actual:
 - GitHub ya soporta `token` o GitHub App real con `app_id`, `installation_id` y private key; si se habilita, el operador puede sincronizar protected branches, importar snapshots de pull requests y revisar timeline GitHub desde la UI.
 - El dashboard profundo por blueprint ya expone `latest_plan`, `agent_runs`, `artifacts`, `stage_feedback`, `retrospective_items` y PRs vinculados por branch naming.
 - Existe trazabilidad persistida en `github_sync_events` y cobertura E2E para branch protection sync, PR sync y observabilidad de blueprint, todo en modo manual/pull-based.
+- El siguiente salto de UX debe ser un `chat intake workspace` en la web para pasar de idea -> requisitos formales -> roadmap sin salir de Mission Control.
 
 Tickets:
 
@@ -427,6 +530,8 @@ Tickets:
 - `AG-603` Crear dashboard de blueprint, backlog, sprints, agent runs, stage feedback y retrospective.
 - `AG-604` Crear timeline unificado de artifacts, runs, PRs, bloqueos y decisiones.
 - `AG-605` Crear health dashboard de providers: Ollama models instalados, latencia y disponibilidad Bedrock.
+- `AG-606` Crear interfaz de chat web para `conversational intake`, ligada a proyecto, transcript persistido y estado de confianza.
+- `AG-607` Crear vista de aprobacion para `requirements.generated.md` y `roadmap.generated.md`, con diff entre borrador generado y version aprobada.
 
 Criterios de aceptacion:
 
@@ -434,6 +539,7 @@ Criterios de aceptacion:
 - El estado operativo del sistema se puede monitorear desde Mission Control.
 - La UI permite diagnosticar donde fallo una corrida sin entrar a logs manuales.
 - No existen dependencias obligatorias en webhooks o eventos de PR remotos para el flujo base.
+- El operador puede iniciar un proyecto nuevo describiendo la idea en chat web y aprobar los artefactos formales generados sin usar herramientas externas.
 
 ### Fase 7 - Hardening & Benchmark
 
@@ -447,10 +553,19 @@ Tickets:
 - `AG-704` Crear benchmark automatizado usando `docs/example_input_project/requirements.md` y `docs/example_input_project/roadmap.md`.
 - `AG-705` Medir KPIs: lead time por ticket, retry rate, porcentaje de tickets completados, defectos encontrados en review, costo por sprint.
 - `AG-706` Cerrar rollout eliminando adapter legacy restante y documentando runbooks.
+- `AG-707` Crear benchmark automatizado de intake semiestructurado usando `docs/example_project_2/*` y medir cuanto del paquete formal se genera sin intervencion humana.
+- `AG-708` Crear benchmark de `use-case-only` con un brief minimo y medir `confidence_score`, preguntas abiertas y calidad del `close-the-gap`.
+- `AG-709` Medir KPIs del intake flexible: porcentaje de requerimientos trazables, cantidad de supuestos no resueltos, retrabajo posterior al planning y precision del backlog derivado.
+- `AG-710` Crear benchmark `chat-to-spec` con escenarios reales, incluyendo un caso de RRHH + contratos Ethereum + attendance desktop + payroll por hora.
+- `AG-711` Validar que `docs/example_project_2/*` cierre al mismo `input certificado` esperado por nuestros contratos internos, sin bypasses o adapters manuales.
 
 Criterios de aceptacion:
 
-- El benchmark del proyecto de ejemplo corre de punta a punta.
+- El benchmark formal del proyecto de ejemplo corre de punta a punta.
+- El benchmark semiestructurado sobre `docs/example_project_2/` produce un paquete formal usable antes del planning.
+- El benchmark semiestructurado sobre `docs/example_project_2/` produce el `input certificado` canonico esperado por los contratos internos.
+- Existe un benchmark `use-case-only` con salida controlada, supuestos explicitos y criterio de escalamiento humano.
+- Existe un benchmark `chat-to-spec` donde una descripcion conversacional produce documentos formales aprobables.
 - Existen metricas objetivas de autonomia, calidad y costo.
 - El runtime legacy queda retirado del camino principal.
 
@@ -461,12 +576,12 @@ Criterios de aceptacion:
 3. Modelar persistencia y trazabilidad en Postgres antes de aumentar autonomia.
 4. Montar el runtime CrewAI con Ollama workers y Bedrock escalations.
 5. Automatizar GitHub y gates de QA solo cuando haya evidencia persistida suficiente.
-6. Ejecutar benchmark del proyecto de ejemplo como criterio de salida real.
+6. Ejecutar benchmarks formal, semiestructurado, `use-case-only` y `chat-to-spec` como criterio de salida real.
 
 ## Riesgos principales y mitigaciones
 
-- **Riesgo: parsing fragil de documentos Markdown.**  
-  Mitigacion: parser estructurado + reconciliacion LLM + score de confianza + trazabilidad por seccion.
+- **Riesgo: parsing fragil de documentos Markdown o dependencia excesiva de un formato unico.**  
+  Mitigacion: `shape classifier` + parser estructurado donde aplique + formalizacion con arquitecto + `confidence_score` + trazabilidad por seccion.
 
 - **Riesgo: workers locales insuficientes para tickets complejos.**  
   Mitigacion: escalamiento automatico a Bedrock, split de tareas y politicas de retry.
@@ -485,6 +600,8 @@ Criterios de aceptacion:
 El MVP correcto no es "un chat con agentes". El MVP correcto es este:
 
 - Subir `requirements.md` y `roadmap.md`.
+- O subir un set de artefactos mas abierto para que el arquitecto genere esos documentos primero.
+- O describir la idea en un chat web para que el arquitecto produzca esos documentos antes de planning.
 - Obtener blueprint y backlog listos en Postgres.
 - Lanzar un sprint automatico sobre un repo GitHub.
 - Ejecutar CrewAI con workers Ollama y revisores Bedrock.
