@@ -158,13 +158,15 @@ GET /api/operator/github/timeline
 GET /api/blueprints/<id>/operator-dashboard
 ```
 
+El flujo base sigue siendo `git` local. No hay webhooks de GitHub ni dependencia de eventos de pull request para operar Mission Control. Los endpoints GitHub son opcionales y se usan en modo manual/pull-based.
+
 El dashboard principal `/` ya expone un panel operador para:
 
 - configurar overrides de `Ollama`, `Bedrock` y GitHub
-- registrar `GITHUB_TOKEN` o credenciales de GitHub App
+- registrar `GITHUB_TOKEN` o credenciales de GitHub App cuando se quiera habilitar esa integracion
 - persistir repositorio, branch base, protected branches y politica de reviews
-- disparar sync de protected branches y pull requests contra GitHub
-- ver timeline GitHub y dashboard profundo por blueprint con runs, feedback, retrospective y PRs
+- disparar sync manual de protected branches y pull requests contra GitHub
+- ver timeline GitHub y dashboard profundo por blueprint con runs, feedback, retrospective y PRs cuando GitHub este habilitado
 
 El E2E `scripts/e2e_validate_mission_control.py` ahora valida tambien:
 
