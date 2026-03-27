@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .certification import build_certified_input
 from .models import ProjectBlueprint
 from .parser import parse_requirements, parse_roadmap, parse_spec_document
 
@@ -32,7 +33,7 @@ class SpecIntakeService:
             or requirements_document.title
         )
 
-        return ProjectBlueprint(
+        blueprint = ProjectBlueprint(
             project_name=project_name,
             source_documents=[requirements_document, roadmap_document],
             capabilities=capabilities,
@@ -40,6 +41,17 @@ class SpecIntakeService:
             roadmap_epics=roadmap_epics,
             acceptance_items=acceptance_items,
             issues=issues,
+        )
+        certified_input = build_certified_input(blueprint)
+        return ProjectBlueprint(
+            project_name=blueprint.project_name,
+            source_documents=blueprint.source_documents,
+            capabilities=blueprint.capabilities,
+            requirements=blueprint.requirements,
+            roadmap_epics=blueprint.roadmap_epics,
+            acceptance_items=blueprint.acceptance_items,
+            issues=blueprint.issues,
+            certified_input=certified_input,
         )
 
     def _build_capabilities(self, requirements_document, roadmap_epics) -> list[str]:

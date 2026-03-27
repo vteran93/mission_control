@@ -106,6 +106,16 @@ def test_spec_intake_service_builds_blueprint(sample_spec_files):
     assert "Arquitectura" in blueprint.capabilities
     assert "Parsea Markdown" in blueprint.acceptance_items[0]
     assert blueprint.roadmap_epics[0].tickets[1].dependencies == ["TICKET-001"]
+    assert blueprint.certified_input is not None
+    assert blueprint.certified_input.contract_name == "mission_control_certified_input"
+    assert blueprint.certified_input.certification_status == "ready_for_planning"
+    assert blueprint.certified_input.technology_guidance is not None
+    assert blueprint.certified_input.technology_guidance.philosophy == "python_first"
+    assert "Python" in blueprint.certified_input.technology_guidance.selection_policy
+    assert any(
+        document.doc_type == "requirements.generated.md"
+        for document in blueprint.certified_input.documents
+    )
 
 
 def test_spec_intake_preview_endpoint_returns_blueprint(sample_spec_files, tmp_path, monkeypatch):
@@ -139,6 +149,63 @@ def test_spec_intake_preview_endpoint_returns_blueprint(sample_spec_files, tmp_p
     assert payload["project_name"] == "Plataforma de Automatizacion"
     assert payload["summary"]["tickets_count"] == 2
     assert payload["summary"]["requirements_count"] >= 3
+    assert payload["certified_input"]["contract_name"] == "mission_control_certified_input"
+    assert payload["certified_input"]["certification_status"] == "ready_for_planning"
+    assert payload["certified_input"]["documents"][0]["doc_type"] == "requirements.generated.md"
+    assert payload["certified_input"]["technology_guidance"]["philosophy"] == "python_first"
+
+
+def test_certified_input_highlights_platform_exceptions(tmp_path):
+    requirements_path = tmp_path / "requirements.md"
+    roadmap_path = tmp_path / "roadmap.md"
+
+    requirements_path.write_text(
+        """# Workforce Platform
+**Framework**: CrewAI
+
+## Aplicaciones Cliente
+La solucion debe incluir aplicaciones para Android, iOS, Windows, Linux y Mac.
+- Debe registrar asistencia
+- Debe sincronizar tareas
+""",
+        encoding="utf-8",
+    )
+
+    roadmap_path.write_text(
+        """# Roadmap
+**Proyecto**: Workforce Platform
+
+## EP-0 · Setup
+> Objetivo: dejar lista la base del producto.
+
+### TICKET-001 · Preparar arquitectura inicial
+```
+Tipo: feature
+Prioridad: P0
+Est.: 4 h
+Deps.: ninguna
+```
+
+**Descripción**
+Definir arquitectura inicial.
+
+**Criterios de aceptación**
+- [ ] Define stack base
+""",
+        encoding="utf-8",
+    )
+
+    service_module = load_module("spec_intake.service")
+    service = service_module.SpecIntakeService()
+    blueprint = service.build_blueprint(
+        requirements_path=requirements_path,
+        roadmap_path=roadmap_path,
+    )
+
+    notes = blueprint.certified_input.technology_guidance.decision_notes
+    assert any("Android" in note or "Kotlin" in note for note in notes)
+    assert any("iOS" in note or "Swift" in note for note in notes)
+    assert any("desktop multiplataforma" in note for note in notes)
 
 
 def test_dependency_parser_expands_ranges():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import asdict
 
 from database import (
     BlueprintRequirementRecord,
@@ -15,7 +16,15 @@ from database import (
     db,
 )
 
-from .models import ProjectBlueprint, SpecDocument
+from .certification import build_certified_input
+from .models import (
+    ProjectBlueprint,
+    RequirementItem,
+    RoadmapEpic,
+    RoadmapTicket,
+    SpecDocument,
+    SpecSection,
+)
 
 
 def hash_spec_document(document: SpecDocument) -> str:
@@ -197,6 +206,7 @@ class BlueprintPersistenceService:
             key=lambda item: (item.version, item.created_at.isoformat() if item.created_at else ""),
             reverse=True,
         )
+        certified_input = asdict(self._build_certified_input(blueprint_record))
 
         return {
             **blueprint_record.to_dict(),
@@ -238,6 +248,7 @@ class BlueprintPersistenceService:
             "stage_feedback": [item.to_dict() for item in stage_feedback],
             "retrospective_items": [item.to_dict() for item in retrospective_items],
             "github_sync_events": [item.to_dict() for item in github_sync_events[:20]],
+            "certified_input": certified_input,
             "summary": {
                 "requirements_count": len(requirements),
                 "epics_count": len(epics),
@@ -251,3 +262,74 @@ class BlueprintPersistenceService:
                 "issues_count": len(blueprint_record.issues_json or []),
             },
         }
+
+    def _build_certified_input(self, blueprint_record: ProjectBlueprintRecord):
+        return build_certified_input(self._hydrate_blueprint(blueprint_record))
+
+    def _hydrate_blueprint(self, blueprint_record: ProjectBlueprintRecord) -> ProjectBlueprint:
+        requirements_document = self._hydrate_spec_document(blueprint_record.requirements_document)
+        roadmap_document = self._hydrate_spec_document(blueprint_record.roadmap_document)
+        requirements = [
+            RequirementItem(
+                requirement_id=item.requirement_id,
+                title=item.title,
+                source_section=item.source_section,
+                category=item.category,
+                summary=item.summary,
+                constraints=list(item.constraints_json or []),
+                acceptance_hints=list(item.acceptance_hints_json or []),
+            )
+            for item in sorted(blueprint_record.requirements, key=lambda row: row.order_index)
+        ]
+        roadmap_epics: list[RoadmapEpic] = []
+        for epic in sorted(blueprint_record.delivery_epics, key=lambda row: row.order_index):
+            roadmap_epics.append(
+                RoadmapEpic(
+                    epic_id=epic.epic_id,
+                    name=epic.name,
+                    objective=epic.objective or "",
+                    tickets=[
+                        RoadmapTicket(
+                            ticket_id=ticket.ticket_id,
+                            title=ticket.title,
+                            epic_id=epic.epic_id,
+                            epic_name=epic.name,
+                            ticket_type=ticket.ticket_type,
+                            priority=ticket.priority,
+                            estimate=ticket.estimate,
+                            dependencies=list(ticket.dependencies_json or []),
+                            description=ticket.description or "",
+                            acceptance_criteria=list(ticket.acceptance_criteria_json or []),
+                        )
+                        for ticket in sorted(epic.delivery_tasks, key=lambda row: row.order_index)
+                    ],
+                )
+            )
+
+        return ProjectBlueprint(
+            project_name=blueprint_record.project_name,
+            source_documents=[requirements_document, roadmap_document],
+            capabilities=list(blueprint_record.capabilities_json or []),
+            requirements=requirements,
+            roadmap_epics=roadmap_epics,
+            acceptance_items=list(blueprint_record.acceptance_items_json or []),
+            issues=list(blueprint_record.issues_json or []),
+        )
+
+    @staticmethod
+    def _hydrate_spec_document(document_record: SpecDocumentRecord) -> SpecDocument:
+        sections = [
+            SpecSection(
+                heading_level=section.heading_level,
+                title=section.title,
+                body=section.body,
+            )
+            for section in sorted(document_record.sections, key=lambda row: row.order_index)
+        ]
+        return SpecDocument(
+            doc_type=document_record.doc_type,
+            path=document_record.path,
+            title=document_record.title,
+            metadata=dict(document_record.metadata_json or {}),
+            sections=sections,
+        )

@@ -108,6 +108,9 @@ def test_import_blueprint_persists_records(configured_app_with_specs):
     assert payload["project_name"] == "Plataforma de Automatizacion"
     assert payload["summary"]["tickets_count"] == 1
     assert payload["summary"]["requirements_count"] >= 2
+    assert payload["certified_input"]["contract_name"] == "mission_control_certified_input"
+    assert payload["certified_input"]["certification_status"] == "ready_for_planning"
+    assert payload["certified_input"]["technology_guidance"]["philosophy"] == "python_first"
 
     list_response = client.get("/api/blueprints")
     assert list_response.status_code == 200
@@ -164,6 +167,7 @@ def test_blueprint_feedback_and_retrospective_are_persisted(configured_app_with_
     assert len(payload["retrospective_items"]) == 1
     assert payload["stage_feedback"][0]["stage_name"] == "planning"
     assert payload["retrospective_items"][0]["owner"] == "Jarvis-PM"
+    assert payload["certified_input"]["contract_name"] == "mission_control_certified_input"
 
 
 def test_execution_tracking_endpoints_build_timeline_and_report(configured_app_with_specs):

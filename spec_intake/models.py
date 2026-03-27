@@ -54,6 +54,49 @@ class RoadmapEpic:
 
 
 @dataclass(frozen=True)
+class CertifiedTraceabilityEntry:
+    target_artifact: str
+    target_ref: str
+    source_doc_type: str
+    source_path: str
+    source_section: str
+    rationale: str
+
+
+@dataclass(frozen=True)
+class TechnologyGuidance:
+    philosophy: str
+    selection_policy: str
+    preferred_stack: list[str] = field(default_factory=list)
+    compatibility_exceptions: list[str] = field(default_factory=list)
+    decision_notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CertifiedDocument:
+    doc_type: str
+    title: str
+    content: str
+    source_paths: list[str] = field(default_factory=list)
+    source_sections: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CertifiedInput:
+    contract_name: str
+    contract_version: str
+    source_input_kind: str
+    certification_status: str
+    confidence_score: float
+    summary: str
+    documents: list[CertifiedDocument] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    traceability_map: list[CertifiedTraceabilityEntry] = field(default_factory=list)
+    technology_guidance: TechnologyGuidance | None = None
+
+
+@dataclass(frozen=True)
 class ProjectBlueprint:
     project_name: str
     source_documents: list[SpecDocument]
@@ -62,6 +105,7 @@ class ProjectBlueprint:
     roadmap_epics: list[RoadmapEpic]
     acceptance_items: list[str]
     issues: list[str] = field(default_factory=list)
+    certified_input: CertifiedInput | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
