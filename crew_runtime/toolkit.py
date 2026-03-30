@@ -22,6 +22,7 @@ from delivery_tracking import DeliveryTrackingService
 from spec_intake import BlueprintPersistenceService
 
 from .crew_seeds import CrewSeed
+from workspace_markdown_bundle import extract_markdown_file_bundle
 
 
 MAX_TOOL_OUTPUT_CHARS = 6000
@@ -98,6 +99,11 @@ TOOL_SPECS: tuple[RuntimeToolSpec, ...] = (
         name="workspace_write_file",
         category="workspace",
         description="Crea o actualiza archivos dentro del workspace para implementar codigo o configuracion.",
+    ),
+    RuntimeToolSpec(
+        name="workspace_apply_markdown_bundle",
+        category="workspace",
+        description="Aplica un bundle Markdown con bloques filepath (#, // o <!-- -->) y escribe los archivos resultantes.",
     ),
     RuntimeToolSpec(
         name="workspace_run_unix_command",
@@ -225,6 +231,16 @@ class RuntimeToolCatalog:
             """Crea o actualiza un archivo del workspace con contenido nuevo."""
             return catalog.write_workspace_file(path=path, content=content, overwrite=overwrite)
 
+        @tool("workspace_apply_markdown_bundle")
+        def workspace_apply_markdown_bundle(bundle_markdown: str, overwrite: bool = True) -> str:
+            """Aplica un bundle Markdown con filepath directives y escribe los archivos en el workspace."""
+            return catalog._dump_payload(
+                catalog.apply_markdown_bundle(
+                    bundle_markdown=bundle_markdown,
+                    overwrite=overwrite,
+                )
+            )
+
         @tool("workspace_run_unix_command")
         def workspace_run_unix_command(command: str, cwd: str = ".", timeout_seconds: int = 120) -> str:
             """Ejecuta un comando Unix en el workspace y devuelve salida estructurada."""
@@ -258,6 +274,7 @@ class RuntimeToolCatalog:
             "workspace_package_manager_context": workspace_package_manager_context,
             "workspace_read_file": workspace_read_file,
             "workspace_write_file": workspace_write_file,
+            "workspace_apply_markdown_bundle": workspace_apply_markdown_bundle,
             "workspace_run_unix_command": workspace_run_unix_command,
             "workspace_run_mypy": workspace_run_mypy,
             "workspace_run_tests": workspace_run_tests,
@@ -281,6 +298,7 @@ class RuntimeToolCatalog:
             "capabilities": detail["capabilities"],
             "issues": detail["issues"],
             "certified_input": detail["certified_input"],
+            "delivery_guardrails": detail["delivery_guardrails"],
             "summary": detail["summary"],
             "requirements": detail["requirements"],
             "roadmap_epics": detail["roadmap_epics"],
@@ -318,6 +336,7 @@ class RuntimeToolCatalog:
         detail = self.persistence_service.serialize_blueprint_detail(blueprint)
         certified_input = detail.get("certified_input") or {}
         technology_guidance = certified_input.get("technology_guidance") or {}
+        delivery_guardrails = detail.get("delivery_guardrails") or {}
         active_policy = find_guardrail_policy(self.workspace_root, stop_path=self.workspace_root)
 
         lines = [
@@ -366,6 +385,30 @@ class RuntimeToolCatalog:
             lines.append("## Riesgos conocidos del blueprint")
             for issue in issues[:MAX_PROMPT_CONTEXT_ITEMS]:
                 lines.append(f"- {self._truncate_prompt_text(str(issue))}")
+
+        prompt_guardrails = delivery_guardrails.get("prompt")
+        if not isinstance(prompt_guardrails, dict):
+            prompt_guardrails = delivery_guardrails
+        if isinstance(prompt_guardrails, dict) and prompt_guardrails:
+            lines.append("")
+            lines.append("## Guardrails persistidos por blueprint")
+            tech_stack = prompt_guardrails.get("tech_stack") or {}
+            for area, stack in list(tech_stack.items())[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Tech stack {area}: {self._truncate_prompt_text(json.dumps(stack, ensure_ascii=False))}")
+            for item in list(prompt_guardrails.get("forbidden_patterns") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Patron prohibido: {self._truncate_prompt_text(str(item))}")
+            for item in list(prompt_guardrails.get("principles") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Principio: {self._truncate_prompt_text(str(item))}")
+            for item in list(prompt_guardrails.get("protected_files") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Archivo protegido: {self._truncate_prompt_text(str(item))}")
+            forbidden_libraries = list(prompt_guardrails.get("forbidden_libraries") or [])[:MAX_PROMPT_CONTEXT_ITEMS]
+            for item in forbidden_libraries:
+                if isinstance(item, dict):
+                    lines.append(
+                        f"- Libreria prohibida: {item.get('name', 'n/a')} | motivo={self._truncate_prompt_text(str(item.get('reason', 'n/a')))}"
+                    )
+                else:
+                    lines.append(f"- Libreria prohibida: {self._truncate_prompt_text(str(item))}")
 
         if active_policy is not None:
             _policy_root, policy = active_policy
@@ -654,6 +697,30 @@ class RuntimeToolCatalog:
             },
             ensure_ascii=False,
         )
+
+    def apply_markdown_bundle(self, *, bundle_markdown: str, overwrite: bool = True) -> dict[str, Any]:
+        files = extract_markdown_file_bundle(bundle_markdown)
+        written_files: list[dict[str, Any]] = []
+        for file in files:
+            write_result = json.loads(
+                self.write_workspace_file(
+                    path=file.path,
+                    content=file.content,
+                    overwrite=overwrite,
+                )
+            )
+            written_files.append(
+                {
+                    "path": file.path,
+                    "language": file.language,
+                    "bytes": write_result["bytes"],
+                }
+            )
+        return {
+            "status": "written",
+            "file_count": len(written_files),
+            "files": written_files,
+        }
 
     def run_unix_command(
         self,

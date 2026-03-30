@@ -339,6 +339,7 @@ class ProjectBlueprintRecord(db.Model):
     capabilities_json = db.Column(db.JSON, default=list)
     acceptance_items_json = db.Column(db.JSON, default=list)
     issues_json = db.Column(db.JSON, default=list)
+    delivery_guardrails_json = db.Column(db.JSON, default=dict)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     requirements_document = db.relationship(
@@ -361,6 +362,7 @@ class ProjectBlueprintRecord(db.Model):
             'capabilities': self.capabilities_json or [],
             'acceptance_items': self.acceptance_items_json or [],
             'issues': self.issues_json or [],
+            'delivery_guardrails': self.delivery_guardrails_json or {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

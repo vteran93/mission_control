@@ -191,3 +191,55 @@ def save_guardrail_policy(
         encoding="utf-8",
     )
     return policy_path
+
+
+def merge_project_guardrails(
+    policy: ArchitectureGuardrailPolicy,
+    project_guardrails: dict[str, Any] | None,
+) -> ArchitectureGuardrailPolicy:
+    if not isinstance(project_guardrails, dict) or not project_guardrails:
+        return policy
+
+    runtime_guardrails = project_guardrails.get("runtime")
+    if not isinstance(runtime_guardrails, dict):
+        runtime_guardrails = project_guardrails
+
+    forbidden_path_prefixes = list(policy.forbidden_path_prefixes)
+    forbidden_path_globs = list(policy.forbidden_path_globs)
+    forbidden_command_patterns = list(policy.forbidden_command_patterns)
+
+    for raw_prefix in runtime_guardrails.get("protected_path_prefixes", []) or []:
+        normalized = ensure_root_suffix(normalize_relative_path(raw_prefix))
+        if normalized not in forbidden_path_prefixes:
+            forbidden_path_prefixes.append(normalized)
+
+    for raw_prefix in runtime_guardrails.get("forbidden_path_prefixes", []) or []:
+        normalized = ensure_root_suffix(normalize_relative_path(raw_prefix))
+        if normalized not in forbidden_path_prefixes:
+            forbidden_path_prefixes.append(normalized)
+
+    for raw_glob in runtime_guardrails.get("protected_files", []) or []:
+        normalized = normalize_relative_path(raw_glob)
+        if normalized not in forbidden_path_globs:
+            forbidden_path_globs.append(normalized)
+
+    for raw_glob in runtime_guardrails.get("forbidden_path_globs", []) or []:
+        normalized = str(raw_glob).strip()
+        if normalized and normalized not in forbidden_path_globs:
+            forbidden_path_globs.append(normalized)
+
+    for raw_pattern in runtime_guardrails.get("forbidden_command_patterns", []) or []:
+        normalized = " ".join(str(raw_pattern).strip().lower().split())
+        if normalized and normalized not in forbidden_command_patterns:
+            forbidden_command_patterns.append(normalized)
+
+    return ArchitectureGuardrailPolicy.from_dict(
+        {
+            "scope": policy.scope,
+            "allowed_write_paths": list(policy.allowed_write_paths),
+            "allowed_write_roots": list(policy.allowed_write_roots),
+            "forbidden_path_prefixes": forbidden_path_prefixes,
+            "forbidden_path_globs": forbidden_path_globs,
+            "forbidden_command_patterns": forbidden_command_patterns,
+        }
+    )

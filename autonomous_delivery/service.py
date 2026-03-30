@@ -12,6 +12,7 @@ from architecture_guardrails import (
     DEFAULT_POLICY_RELATIVE_PATH,
     ArchitectureGuardrailPolicy,
     assert_allowed_paths,
+    merge_project_guardrails,
     save_guardrail_policy,
     validate_relative_path,
     validate_unix_command,
@@ -219,6 +220,7 @@ class AutonomousDeliveryService:
                 policy=guardrail_policy,
                 policy_path=guardrail_context["policy_path"],
                 persisted=True,
+                project_guardrails=guardrail_context["project_guardrails"],
             ),
             "summary": {
                 "selected_item_count": len(selected_items),
@@ -292,6 +294,7 @@ class AutonomousDeliveryService:
                 policy=guardrail_context["policy"],
                 policy_path=guardrail_context["policy_path"],
                 persisted=False,
+                project_guardrails=guardrail_context["project_guardrails"],
             ),
         }
 
@@ -354,6 +357,11 @@ class AutonomousDeliveryService:
         return {
             "policy": policy,
             "policy_path": str(policy_path.resolve()),
+            "project_guardrails": (
+                dict(getattr(plan.blueprint, "delivery_guardrails_json", {}) or {})
+                if plan.blueprint is not None
+                else {}
+            ),
         }
 
     def _build_guardrail_policy(
@@ -392,6 +400,12 @@ class AutonomousDeliveryService:
                 "allowed_write_roots": list(INTERNAL_GUARDRAIL_WRITE_ROOTS),
             }
         )
+        project_guardrails = (
+            dict(getattr(plan.blueprint, "delivery_guardrails_json", {}) or {})
+            if plan.blueprint is not None
+            else {}
+        )
+        policy = merge_project_guardrails(policy, project_guardrails)
         assert_allowed_paths(list(policy.allowed_write_paths), policy)
         return policy
 
@@ -401,6 +415,7 @@ class AutonomousDeliveryService:
         policy: ArchitectureGuardrailPolicy,
         policy_path: str,
         persisted: bool,
+        project_guardrails: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "persisted": persisted,
@@ -412,6 +427,7 @@ class AutonomousDeliveryService:
             "forbidden_path_prefixes": list(policy.forbidden_path_prefixes),
             "forbidden_path_globs": list(policy.forbidden_path_globs),
             "forbidden_command_patterns": list(policy.forbidden_command_patterns),
+            "project_guardrails": dict(project_guardrails or {}),
         }
 
     def _execute_item(

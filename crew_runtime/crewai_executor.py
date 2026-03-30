@@ -220,6 +220,10 @@ class CrewAIExecutor:
             f"Resolved model profile: {profile.name} ({profile.model})",
             f"Available tools: {', '.join(tool['name'] if isinstance(tool, dict) else getattr(tool, 'name', str(tool)) for tool in self.tool_catalog.describe_for_seed(seed))}",
         ]
+        if "workspace" in seed.tool_groups:
+            context_lines.append(
+                "Workspace rule: para cambios multiarchivo usa workspace_write_file o workspace_apply_markdown_bundle; no dejes bundles sin aplicar."
+            )
         if task_id is not None:
             context_lines.append(f"Task ID: {task_id}")
         if task.project_blueprint_id is not None:

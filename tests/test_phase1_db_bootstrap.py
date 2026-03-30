@@ -107,6 +107,10 @@ def test_run_migrations_supports_sqlite_backend(tmp_path):
             row[1]
             for row in connection.execute("PRAGMA table_info(sprint_cycles)")
         }
+        blueprint_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(project_blueprints)")
+        }
         foreign_key_targets = {
             row[2]
             for row in connection.execute("PRAGMA foreign_key_list(task_queue)")
@@ -119,6 +123,7 @@ def test_run_migrations_supports_sqlite_backend(tmp_path):
         }
 
     assert {"project_blueprint_id", "delivery_task_id", "crew_seed", "runtime_metadata_json"} <= columns
+    assert "delivery_guardrails_json" in blueprint_columns
     assert "scrum_plan_id" in sprint_cycle_columns
     assert {"project_blueprints", "delivery_tasks"} <= foreign_key_targets
     assert {"scrum_plans", "scrum_plan_items"} <= tables

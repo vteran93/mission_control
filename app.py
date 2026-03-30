@@ -145,6 +145,14 @@ def register_routes(app: Flask) -> None:
             {"path": str(resolved_roadmap), "role": "roadmap"},
         ]
 
+    def resolve_delivery_guardrails_payload(payload: dict) -> dict:
+        delivery_guardrails = payload.get("delivery_guardrails")
+        if delivery_guardrails is None:
+            return {}
+        if not isinstance(delivery_guardrails, dict):
+            raise ValueError("delivery_guardrails must be an object")
+        return delivery_guardrails
+
     @app.route("/")
     def index():
         cache_bust = int(datetime.now().timestamp())
@@ -254,13 +262,15 @@ def register_routes(app: Flask) -> None:
         data = request.get_json(force=True)
         try:
             input_artifacts = resolve_input_artifacts_payload(data)
+            delivery_guardrails = resolve_delivery_guardrails_payload(data)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except FileNotFoundError as exc:
             return jsonify({"error": str(exc)}), 404
 
         blueprint = app.extensions["spec_intake_service"].build_blueprint_from_input_artifacts(
-            input_artifacts=input_artifacts
+            input_artifacts=input_artifacts,
+            delivery_guardrails=delivery_guardrails,
         )
         return jsonify(blueprint.to_dict())
 
@@ -269,6 +279,7 @@ def register_routes(app: Flask) -> None:
         data = request.get_json(force=True)
         try:
             input_artifacts = resolve_input_artifacts_payload(data)
+            delivery_guardrails = resolve_delivery_guardrails_payload(data)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except FileNotFoundError as exc:
@@ -278,6 +289,7 @@ def register_routes(app: Flask) -> None:
         persistence_service = app.extensions["blueprint_persistence_service"]
         blueprint = spec_service.build_blueprint_from_input_artifacts(
             input_artifacts=input_artifacts,
+            delivery_guardrails=delivery_guardrails,
         )
         blueprint_record = persistence_service.persist_blueprint(blueprint)
         return jsonify(persistence_service.serialize_blueprint_detail(blueprint_record)), 201
@@ -295,6 +307,25 @@ def register_routes(app: Flask) -> None:
         if blueprint_record is None:
             return jsonify({"error": "Blueprint not found"}), 404
         return jsonify(persistence_service.serialize_blueprint_detail(blueprint_record))
+
+    @app.route("/api/blueprints/<int:blueprint_id>/delivery-guardrails", methods=["PUT"])
+    def update_blueprint_delivery_guardrails(blueprint_id: int):
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_record = persistence_service.get_blueprint(blueprint_id)
+        if blueprint_record is None:
+            return jsonify({"error": "Blueprint not found"}), 404
+
+        data = request.get_json(force=True)
+        try:
+            delivery_guardrails = resolve_delivery_guardrails_payload(data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        updated = persistence_service.update_delivery_guardrails(
+            blueprint_id=blueprint_id,
+            delivery_guardrails=delivery_guardrails,
+        )
+        return jsonify(persistence_service.serialize_blueprint_detail(updated))
 
     @app.route("/api/blueprints/<int:blueprint_id>/feedback", methods=["POST"])
     def create_blueprint_feedback(blueprint_id: int):
@@ -986,6 +1017,21 @@ def register_routes(app: Flask) -> None:
     def runtime_tools():
         runtime = app.extensions["mission_control_runtime"]
         return jsonify(runtime.describe_tools())
+
+    @app.route("/api/runtime/workspace/apply-markdown-bundle", methods=["POST"])
+    def runtime_apply_markdown_bundle():
+        data = request.get_json(force=True)
+        bundle_markdown = data.get("bundle_markdown")
+        if not isinstance(bundle_markdown, str) or not bundle_markdown.strip():
+            return jsonify({"error": "bundle_markdown is required"}), 400
+        try:
+            payload = app.extensions["mission_control_runtime"].tool_catalog.apply_markdown_bundle(
+                bundle_markdown=bundle_markdown,
+                overwrite=bool(data.get("overwrite", True)),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload), 201
 
     @app.route("/api/runtime/crew-seeds", methods=["GET"])
     def runtime_crew_seeds():

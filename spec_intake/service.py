@@ -16,18 +16,21 @@ class SpecIntakeService:
         *,
         requirements_path: str | Path,
         roadmap_path: str | Path,
+        delivery_guardrails: dict | None = None,
     ) -> ProjectBlueprint:
         return self.build_blueprint_from_input_artifacts(
             input_artifacts=[
                 {"path": requirements_path, "role": "requirements"},
                 {"path": roadmap_path, "role": "roadmap"},
-            ]
+            ],
+            delivery_guardrails=delivery_guardrails,
         )
 
     def build_blueprint_from_input_artifacts(
         self,
         *,
         input_artifacts: list[object],
+        delivery_guardrails: dict | None = None,
     ) -> ProjectBlueprint:
         classification, source_documents = build_source_documents_from_artifacts(input_artifacts)
         requirements_document = next(
@@ -55,6 +58,7 @@ class SpecIntakeService:
             requirements=requirements,
             roadmap_epics=roadmap_epics,
             acceptance_items=acceptance_items,
+            delivery_guardrails=dict(delivery_guardrails or {}),
             issues=issues,
         )
         certified_input = build_certified_input(blueprint, source_input_kind=classification.shape_kind)
@@ -65,6 +69,7 @@ class SpecIntakeService:
             requirements=blueprint.requirements,
             roadmap_epics=blueprint.roadmap_epics,
             acceptance_items=blueprint.acceptance_items,
+            delivery_guardrails=blueprint.delivery_guardrails,
             issues=blueprint.issues,
             certified_input=certified_input,
         )

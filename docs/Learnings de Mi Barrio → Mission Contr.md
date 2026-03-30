@@ -17,9 +17,12 @@
 
 ### Pendiente
 
-- Persistir guardrails por proyecto/workspace como override explícito del blueprint, en vez de derivarlos sólo desde `certified_input` y la policy activa del workspace.
-- Implementar un extractor multi-estilo de bundles Markdown (`# filepath`, `// filepath`, `<!-- filepath -->`) si se habilita un flujo donde el agente entregue archivos por bloques de código en vez de usar `workspace_write_file`.
 - Llevar este mismo patrón de prompt ordering al futuro arquitecto conversacional de intake (`chat -> requirements.generated.md -> roadmap.generated.md`).
+
+### Cerrado para MVP
+
+- `delivery_guardrails` ya se persiste por blueprint, se serializa en la API, se puede actualizar por `PUT /api/blueprints/<id>/delivery-guardrails` y se mergea de forma restrictiva en `delivery/guardrails/preview` y `delivery/execute`.
+- `workspace_apply_markdown_bundle` ya soporta `# filepath`, `// filepath` y `<!-- filepath -->`, con validación de paths relativos, bloqueo de duplicados y enforcement de `architecture_guardrails`.
 
 ---
 
