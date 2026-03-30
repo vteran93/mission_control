@@ -88,6 +88,16 @@ Validar dependencias del roadmap.
     return requirements_path, roadmap_path
 
 
+@pytest.fixture
+def example_project_dossier_paths():
+    project_root = Path(__file__).resolve().parents[1]
+    dossier_root = project_root / "docs" / "example_project_2"
+    return [
+        dossier_root / "VEO3_CLAUDE_INTEGRATION_ROADMAP.md",
+        dossier_root / "AGENTIC_WORKFLOW_CLASS_DIAGRAM.md",
+    ]
+
+
 def test_spec_intake_service_builds_blueprint(sample_spec_files):
     requirements_path, roadmap_path = sample_spec_files
     service_module = load_module("spec_intake.service")
@@ -218,3 +228,69 @@ def test_dependency_parser_expands_ranges():
     ]
     assert parser_module.parse_dependencies("TICKET-030 (smoke test OK)") == ["TICKET-030"]
     assert parser_module.parse_dependencies("todos los agentes") == []
+
+
+def test_input_artifact_classifier_detects_shapes(sample_spec_files):
+    requirements_path, roadmap_path = sample_spec_files
+    flexible_inputs_module = load_module("spec_intake.flexible_inputs")
+
+    formal_pair = flexible_inputs_module.classify_input_artifacts(
+        [requirements_path, roadmap_path]
+    )
+    assert formal_pair.shape_kind == "formal_pair"
+
+    dossier = flexible_inputs_module.classify_input_artifacts(
+        [
+            "docs/example_project_2/VEO3_CLAUDE_INTEGRATION_ROADMAP.md",
+            "docs/example_project_2/AGENTIC_WORKFLOW_CLASS_DIAGRAM.md",
+        ]
+    )
+    assert dossier.shape_kind == "roadmap_dossier"
+
+    use_case_only = flexible_inputs_module.classify_input_artifacts(
+        [
+            {
+                "label": "chat-brief.md",
+                "content": (
+                    "Quiero un sistema de gestion de firmas y asistencia para RRHH "
+                    "con contratos en Ethereum y calculo de salarios por hora."
+                ),
+            }
+        ]
+    )
+    assert use_case_only.shape_kind == "use_case_only"
+
+
+def test_spec_intake_service_builds_blueprint_from_input_artifacts(sample_spec_files):
+    requirements_path, roadmap_path = sample_spec_files
+    service_module = load_module("spec_intake.service")
+    service = service_module.SpecIntakeService()
+
+    blueprint = service.build_blueprint_from_input_artifacts(
+        input_artifacts=[
+            {"path": requirements_path, "role": "requirements"},
+            {"path": roadmap_path, "role": "roadmap"},
+        ]
+    )
+
+    assert blueprint.project_name == "Plataforma de Automatizacion"
+    assert blueprint.certified_input.source_input_kind == "formal_pair"
+    assert blueprint.certified_input.certification_status == "ready_for_planning"
+
+
+def test_spec_intake_service_normalizes_example_project_dossier(example_project_dossier_paths):
+    service_module = load_module("spec_intake.service")
+    service = service_module.SpecIntakeService()
+
+    blueprint = service.build_blueprint_from_input_artifacts(
+        input_artifacts=example_project_dossier_paths
+    )
+
+    assert blueprint.project_name == "legatus-video-factory"
+    assert len(blueprint.requirements) >= 8
+    assert len(blueprint.roadmap_epics) >= 5
+    assert sum(len(epic.tickets) for epic in blueprint.roadmap_epics) >= 10
+    assert blueprint.certified_input is not None
+    assert blueprint.certified_input.source_input_kind == "roadmap_dossier"
+    assert blueprint.certified_input.certification_status == "needs_operator_review"
+    assert any(epic.name.startswith("Fase 0") for epic in blueprint.roadmap_epics)

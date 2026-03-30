@@ -15,6 +15,7 @@ planning/review flows without external providers.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
 import os
 import re
@@ -32,6 +33,14 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class ExternalPhase4BlueprintSource:
+    project_label: str
+    input_mode: str
+    import_payload: dict[str, Any]
+    artifact_paths: tuple[Path, ...]
 
 
 def maybe_reexec_in_repo_venv(repo_root: Path) -> None:
@@ -86,7 +95,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--project-root",
-        help="External project root containing requirements.md and roadmap.md for the Phase 4 E2E path.",
+        help=(
+            "External project root for the Phase 4 E2E path. "
+            "If requirements.md and roadmap.md exist, the legacy pair is used; otherwise "
+            "all Markdown artifacts under the directory are sent through input_artifacts[]."
+        ),
     )
     parser.add_argument(
         "--requirements-path",
@@ -95,6 +108,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--roadmap-path",
         help="Explicit roadmap.md path for the Phase 4 E2E path.",
+    )
+    parser.add_argument(
+        "--input-artifact",
+        action="append",
+        default=[],
+        help=(
+            "Repeatable Phase 4 input artifact path. When provided, the script imports the "
+            "external project through input_artifacts[]."
+        ),
     )
     parser.add_argument(
         "--allow-missing-langgraph",
@@ -379,8 +401,59 @@ def review_required_review(summary: str) -> str:
     )
 
 
-def resolve_external_phase4_specs(args: argparse.Namespace) -> tuple[Path, Path, str] | None:
-    """Resolve external specs for a real-project Phase 4 E2E run."""
+def build_legacy_blueprint_import_payload(requirements_path: Path, roadmap_path: Path) -> dict[str, Any]:
+    return {
+        "requirements_path": str(requirements_path),
+        "roadmap_path": str(roadmap_path),
+    }
+
+
+def build_input_artifacts_import_payload(artifact_paths: list[Path]) -> dict[str, Any]:
+    return {"input_artifacts": [str(path) for path in artifact_paths]}
+
+
+def collect_markdown_artifacts(project_root: Path) -> list[Path]:
+    artifacts = sorted(
+        path.resolve()
+        for path in project_root.rglob("*")
+        if path.is_file() and path.suffix.lower() == ".md"
+    )
+    if not artifacts:
+        raise RuntimeError(f"No Markdown artifacts found under project root: {project_root}")
+    return artifacts
+
+
+def infer_project_label_from_artifacts(artifact_paths: list[Path]) -> str:
+    if not artifact_paths:
+        return "external-project"
+    try:
+        common_root = Path(os.path.commonpath([str(path.parent) for path in artifact_paths]))
+        if common_root.name:
+            return common_root.name
+    except ValueError:
+        pass
+    if len(artifact_paths) == 1:
+        return artifact_paths[0].stem
+    return artifact_paths[0].parent.name or "external-project"
+
+
+def resolve_external_phase4_specs(args: argparse.Namespace) -> ExternalPhase4BlueprintSource | None:
+    """Resolve external Phase 4 import inputs for a real-project E2E run."""
+
+    configured_modes = [
+        mode_name
+        for mode_name, enabled in (
+            ("requirements_roadmap", bool(args.requirements_path or args.roadmap_path)),
+            ("project_root", bool(args.project_root)),
+            ("input_artifacts", bool(args.input_artifact)),
+        )
+        if enabled
+    ]
+    if len(configured_modes) > 1:
+        raise RuntimeError(
+            "Use only one external Phase 4 input mode: --project-root, "
+            "--requirements-path/--roadmap-path, or --input-artifact."
+        )
 
     if args.requirements_path or args.roadmap_path:
         if not args.requirements_path or not args.roadmap_path:
@@ -391,17 +464,45 @@ def resolve_external_phase4_specs(args: argparse.Namespace) -> tuple[Path, Path,
             raise RuntimeError(f"requirements path not found: {requirements_path}")
         if not roadmap_path.is_file():
             raise RuntimeError(f"roadmap path not found: {roadmap_path}")
-        return requirements_path, roadmap_path, requirements_path.parent.name
+        return ExternalPhase4BlueprintSource(
+            project_label=requirements_path.parent.name,
+            input_mode="formal_pair",
+            import_payload=build_legacy_blueprint_import_payload(requirements_path, roadmap_path),
+            artifact_paths=(requirements_path, roadmap_path),
+        )
 
     if args.project_root:
         project_root = Path(args.project_root).expanduser().resolve()
         requirements_path = project_root / "requirements.md"
         roadmap_path = project_root / "roadmap.md"
-        if not requirements_path.is_file():
-            raise RuntimeError(f"requirements.md not found in project root: {requirements_path}")
-        if not roadmap_path.is_file():
-            raise RuntimeError(f"roadmap.md not found in project root: {roadmap_path}")
-        return requirements_path, roadmap_path, project_root.name
+        if requirements_path.is_file() and roadmap_path.is_file():
+            return ExternalPhase4BlueprintSource(
+                project_label=project_root.name,
+                input_mode="formal_pair",
+                import_payload=build_legacy_blueprint_import_payload(requirements_path, roadmap_path),
+                artifact_paths=(requirements_path, roadmap_path),
+            )
+
+        artifact_paths = collect_markdown_artifacts(project_root)
+        return ExternalPhase4BlueprintSource(
+            project_label=project_root.name,
+            input_mode="input_artifacts",
+            import_payload=build_input_artifacts_import_payload(artifact_paths),
+            artifact_paths=tuple(artifact_paths),
+        )
+
+    if args.input_artifact:
+        artifact_paths = [Path(raw_path).expanduser().resolve() for raw_path in args.input_artifact]
+        missing_paths = [path for path in artifact_paths if not path.is_file()]
+        if missing_paths:
+            missing_render = ", ".join(str(path) for path in missing_paths)
+            raise RuntimeError(f"input artifact path not found: {missing_render}")
+        return ExternalPhase4BlueprintSource(
+            project_label=infer_project_label_from_artifacts(artifact_paths),
+            input_mode="input_artifacts",
+            import_payload=build_input_artifacts_import_payload(artifact_paths),
+            artifact_paths=tuple(artifact_paths),
+        )
 
     return None
 
@@ -516,6 +617,7 @@ def write_phase4_specs(fixtures_dir: Path) -> dict[str, tuple[Path, Path]]:
 
 
 def write_phase5_specs(fixtures_dir: Path) -> tuple[Path, Path]:
+    fixtures_dir.mkdir(parents=True, exist_ok=True)
     phase5_requirements = fixtures_dir / "phase5_requirements.md"
     phase5_roadmap = fixtures_dir / "phase5_roadmap.md"
 
@@ -597,6 +699,7 @@ def write_phase5_specs(fixtures_dir: Path) -> tuple[Path, Path]:
 
 
 def write_phase6_specs(fixtures_dir: Path) -> tuple[Path, Path]:
+    fixtures_dir.mkdir(parents=True, exist_ok=True)
     phase6_requirements = fixtures_dir / "phase6_requirements.md"
     phase6_roadmap = fixtures_dir / "phase6_roadmap.md"
 
@@ -812,15 +915,12 @@ class FakeGitHubServer:
         return Handler
 
 
-def import_blueprint(base_url: str, requirements_path: Path, roadmap_path: Path) -> dict[str, Any]:
+def import_blueprint(base_url: str, import_payload: dict[str, Any]) -> dict[str, Any]:
     status, payload = api_call(
         base_url,
         "POST",
         "/api/blueprints/import",
-        {
-            "requirements_path": str(requirements_path),
-            "roadmap_path": str(roadmap_path),
-        },
+        import_payload,
     )
     if status != 201:
         raise RuntimeError(f"Cannot import blueprint: status={status}, body={payload}")
@@ -845,7 +945,10 @@ def validate_phase4_scrum_workflow(
     specs = write_phase4_specs(fixtures_dir)
 
     set_fake_crewai_outputs(responses_path, [approved_review("Planning crew aprueba el plan.")])
-    approved_blueprint = import_blueprint(base_url, *specs["approved"])
+    approved_blueprint = import_blueprint(
+        base_url,
+        build_legacy_blueprint_import_payload(*specs["approved"]),
+    )
     approved_blueprint_id = approved_blueprint["id"]
 
     status, approved_plan = api_call(
@@ -882,7 +985,10 @@ def validate_phase4_scrum_workflow(
             review_required_review("Reviewer senior mantiene el plan en review."),
         ],
     )
-    review_blueprint = import_blueprint(base_url, *specs["review_required"])
+    review_blueprint = import_blueprint(
+        base_url,
+        build_legacy_blueprint_import_payload(*specs["review_required"]),
+    )
     review_blueprint_id = review_blueprint["id"]
 
     status, review_plan = api_call(
@@ -955,9 +1061,7 @@ def validate_phase4_real_project_workflow(
     base_url: str,
     responses_path: Path,
     *,
-    requirements_path: Path,
-    roadmap_path: Path,
-    project_label: str,
+    import_source: ExternalPhase4BlueprintSource,
 ) -> dict[str, Any]:
     """Validate the autonomous scrum planner against a real external project."""
 
@@ -972,11 +1076,11 @@ def validate_phase4_real_project_workflow(
     set_fake_crewai_outputs(
         responses_path,
         [
-            approved_review(f"Planning crew aprueba el plan para {project_label}."),
-            approved_review(f"Planning crew aprueba el replan para {project_label}."),
+            approved_review(f"Planning crew aprueba el plan para {import_source.project_label}."),
+            approved_review(f"Planning crew aprueba el replan para {import_source.project_label}."),
         ],
     )
-    blueprint = import_blueprint(base_url, requirements_path, roadmap_path)
+    blueprint = import_blueprint(base_url, import_source.import_payload)
     blueprint_id = blueprint["id"]
 
     status, plan = api_call(
@@ -990,7 +1094,9 @@ def validate_phase4_real_project_workflow(
         },
     )
     if status != 201:
-        raise RuntimeError(f"Cannot create scrum plan for {project_label}: status={status}, body={plan}")
+        raise RuntimeError(
+            f"Cannot create scrum plan for {import_source.project_label}: status={status}, body={plan}"
+        )
     if plan["approval_status"] != "approved" or plan["status"] != "active":
         raise RuntimeError(f"Real-project plan did not reach active/approved state: {plan}")
     if plan["summary"]["planning_crew"]["metadata"]["provider"] != "bedrock":
@@ -1002,7 +1108,9 @@ def validate_phase4_real_project_workflow(
         f"/api/blueprints/{blueprint_id}/scrum-plan/sprint-view",
     )
     if status != 200:
-        raise RuntimeError(f"Cannot read sprint view for {project_label}: status={status}, body={sprint_view}")
+        raise RuntimeError(
+            f"Cannot read sprint view for {import_source.project_label}: status={status}, body={sprint_view}"
+        )
     if sprint_view["plan"]["execution_ready"] is not True:
         raise RuntimeError(f"Real-project sprint view is not execution-ready: {sprint_view}")
 
@@ -1017,31 +1125,39 @@ def validate_phase4_real_project_workflow(
         {
             "sprint_capacity": 16,
             "blocked_ticket_ids": [blocked_ticket_id],
-            "reason": f"E2E replan validation for {project_label}",
+            "reason": f"E2E replan validation for {import_source.project_label}",
         },
     )
     if status != 201:
-        raise RuntimeError(f"Cannot replan scrum flow for {project_label}: status={status}, body={replan}")
+        raise RuntimeError(
+            f"Cannot replan scrum flow for {import_source.project_label}: status={status}, body={replan}"
+        )
     if replan["version"] <= plan["version"]:
         raise RuntimeError(f"Replan did not create a new version: {replan}")
 
     status, plans = api_call(base_url, "GET", f"/api/blueprints/{blueprint_id}/scrum-plans")
     if status != 200:
-        raise RuntimeError(f"Cannot list scrum plans for {project_label}: status={status}, body={plans}")
+        raise RuntimeError(
+            f"Cannot list scrum plans for {import_source.project_label}: status={status}, body={plans}"
+        )
     if len(plans) < 2:
         raise RuntimeError(f"Expected at least 2 scrum plans after replan: {plans}")
 
     status, report = api_call(base_url, "GET", f"/api/blueprints/{blueprint_id}/report")
     if status != 200:
-        raise RuntimeError(f"Cannot read report for {project_label}: status={status}, body={report}")
+        raise RuntimeError(
+            f"Cannot read report for {import_source.project_label}: status={status}, body={report}"
+        )
 
     return {
-        "project_label": project_label,
-        "requirements_path": str(requirements_path),
-        "roadmap_path": str(roadmap_path),
+        "project_label": import_source.project_label,
+        "input_mode": import_source.input_mode,
+        "artifact_paths": [str(path) for path in import_source.artifact_paths],
         "blueprint_id": blueprint_id,
         "requirements_count": blueprint["summary"]["requirements_count"],
         "tickets_count": blueprint["summary"]["tickets_count"],
+        "source_input_kind": blueprint["certified_input"]["source_input_kind"],
+        "certification_status": blueprint["certified_input"]["certification_status"],
         "initial_plan_id": plan["id"],
         "initial_plan_version": plan["version"],
         "initial_sprints_planned": plan["summary"]["sprints_planned"],
@@ -1067,7 +1183,10 @@ def validate_phase5_semiautomatic_delivery(
         responses_path,
         [approved_review("Planning crew aprueba el plan para delivery semiautomatico.")],
     )
-    blueprint = import_blueprint(base_url, requirements_path, roadmap_path)
+    blueprint = import_blueprint(
+        base_url,
+        build_legacy_blueprint_import_payload(requirements_path, roadmap_path),
+    )
     blueprint_id = blueprint["id"]
 
     status, plan = api_call(
@@ -1322,7 +1441,10 @@ def validate_phase6_operator_control(
         responses_path,
         [approved_review("Planning crew aprueba el plan de observabilidad GitHub.")],
     )
-    blueprint = import_blueprint(base_url, requirements_path, roadmap_path)
+    blueprint = import_blueprint(
+        base_url,
+        build_legacy_blueprint_import_payload(requirements_path, roadmap_path),
+    )
     blueprint_id = blueprint["id"]
     github_state["blueprint_id"] = blueprint_id
 
@@ -1637,13 +1759,10 @@ def main() -> int:
             wait_for_api(base_url, args.startup_timeout)
             api_result = validate_three_agent_flow(base_url)
             if external_phase4_specs is not None:
-                requirements_path, roadmap_path, project_label = external_phase4_specs
                 phase4_result = validate_phase4_real_project_workflow(
                     base_url,
                     responses_path,
-                    requirements_path=requirements_path,
-                    roadmap_path=roadmap_path,
-                    project_label=project_label,
+                    import_source=external_phase4_specs,
                 )
             else:
                 phase4_result = validate_phase4_scrum_workflow(base_url, fixtures_dir, responses_path)

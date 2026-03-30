@@ -7,7 +7,7 @@ from .models import RequirementItem, RoadmapEpic, RoadmapTicket, SpecDocument, S
 
 
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
-METADATA_PATTERN = re.compile(r"^\*\*(.+?)\*\*:\s*(.+?)\s*$")
+METADATA_PATTERN = re.compile(r"^\*\*(.+?)\*\*\s*:?\s*(.+?)\s*$")
 TICKET_PATTERN = re.compile(r"^(TICKET-\d+)\s+[·-]\s+(.+?)$")
 EPIC_PATTERN = re.compile(r"^(EP-\d+)\s+[·-]\s+(.+?)$")
 TICKET_ID_PATTERN = re.compile(r"TICKET-(\d+)")
@@ -63,22 +63,26 @@ def extract_metadata(markdown_text: str) -> dict[str, str]:
     for line in markdown_text.splitlines()[:40]:
         match = METADATA_PATTERN.match(line.strip())
         if match:
-            metadata[match.group(1).strip()] = match.group(2).strip()
+            metadata[match.group(1).strip().rstrip(":")] = match.group(2).strip()
     return metadata
+
+
+def parse_spec_text(markdown_text: str, *, doc_type: str, path: str) -> SpecDocument:
+    sections = parse_markdown_sections(markdown_text)
+    title = next((section.title for section in sections if section.heading_level == 1), Path(path).stem)
+    return SpecDocument(
+        doc_type=doc_type,
+        path=path,
+        title=title,
+        metadata=extract_metadata(markdown_text),
+        sections=sections,
+    )
 
 
 def parse_spec_document(path: str | Path, *, doc_type: str) -> SpecDocument:
     resolved_path = Path(path).resolve()
     markdown_text = resolved_path.read_text(encoding="utf-8")
-    sections = parse_markdown_sections(markdown_text)
-    title = next((section.title for section in sections if section.heading_level == 1), resolved_path.stem)
-    return SpecDocument(
-        doc_type=doc_type,
-        path=str(resolved_path),
-        title=title,
-        metadata=extract_metadata(markdown_text),
-        sections=sections,
-    )
+    return parse_spec_text(markdown_text, doc_type=doc_type, path=str(resolved_path))
 
 
 def infer_requirement_category(section_title: str) -> str:
