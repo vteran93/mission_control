@@ -273,6 +273,32 @@ def test_scrum_planner_runs_mandatory_planning_crew_before_persisting(configured
         assert database_module.ScrumPlanRecord.query.count() == 1
 
 
+def test_scrum_planner_injects_guardrails_and_accepts_needs_work_alias(configured_phase4_app):
+    app, _database_module, requirements_path, roadmap_path, fake_crew_class = configured_phase4_app
+    client = app.test_client()
+    blueprint = import_phase4_blueprint(client, requirements_path, roadmap_path)
+    blueprint_id = blueprint["id"]
+    fake_crew_class.kickoff_plan = [
+        types.SimpleNamespace(raw="NEEDS_WORK: faltan definiciones de readiness y riesgo."),
+    ]
+
+    response = client.post(
+        f"/api/blueprints/{blueprint_id}/scrum-plan",
+        json={"sprint_capacity": 5},
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["status"] == "draft"
+    assert payload["approval_status"] == "review_required"
+    assert payload["summary"]["planning_crew"]["approval_status"] == "review_required"
+
+    description = fake_crew_class.kickoff_history[-1]["tasks"][0].kwargs["description"]
+    assert "GUARDRAILS DE MISSION CONTROL" in description
+    assert "python_first" in description
+    assert "Technology guidance" in description
+
+
 def test_scrum_planner_blocks_persistence_when_planning_crew_fails(configured_phase4_app):
     app, database_module, requirements_path, roadmap_path, fake_crew_class = configured_phase4_app
     client = app.test_client()

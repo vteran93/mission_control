@@ -378,6 +378,88 @@ def test_runtime_dispatch_persists_canonical_tracking_records(tmp_path, monkeypa
     assert fake_crew_class.last_kwargs["name"] == "intake"
 
 
+def test_runtime_dispatch_injects_guardrails_memory_and_retry_feedback(tmp_path, monkeypatch):
+    _, fake_crew_class, _ = install_fake_crewai(monkeypatch)
+    app, app_module = build_phase3_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    blueprint = import_minimal_blueprint(client, tmp_path)
+    blueprint_id = blueprint["id"]
+    delivery_task_id = blueprint["roadmap_epics"][0]["tickets"][0]["id"]
+
+    with app.app_context():
+        database_module = importlib.import_module("database")
+        agent_run = database_module.AgentRunRecord(
+            project_blueprint_id=blueprint_id,
+            agent_name="semi_automatic_delivery",
+            agent_role="delivery",
+            provider="mission_control",
+            model="seeded",
+            status="failed",
+            output_summary="Intento previo con hallazgos",
+            error_message="faltan tests y trazabilidad",
+            runtime_name="test",
+        )
+        app_module.db.session.add(agent_run)
+        app_module.db.session.flush()
+        app_module.db.session.add(
+            database_module.TaskExecutionRecord(
+                project_blueprint_id=blueprint_id,
+                delivery_task_id=delivery_task_id,
+                agent_run_id=agent_run.id,
+                status="failed",
+                attempt_number=1,
+                summary="Primera ejecucion rechazada",
+                error_message="faltan tests",
+            )
+        )
+        app_module.db.session.add(
+            database_module.StageFeedbackRecord(
+                project_blueprint_id=blueprint_id,
+                stage_name="review",
+                status="changes_requested",
+                source="semi_automatic_delivery",
+                feedback_text="Faltan tests y trazabilidad.",
+            )
+        )
+        app_module.db.session.commit()
+
+    queue_response = client.post(
+        "/api/send-agent-message",
+        json={
+            "target_agent": "jarvis-dev",
+            "message": "Corrige el ticket con los hallazgos previos.",
+            "project_blueprint_id": blueprint_id,
+            "delivery_task_id": delivery_task_id,
+            "crew_seed": "delivery",
+        },
+    )
+    assert queue_response.status_code == 200
+    queue_entry_id = queue_response.get_json()["queue_entry_id"]
+
+    with app.app_context():
+        queue_entry = app_module.db.session.get(app_module.TaskQueue, queue_entry_id)
+        queue_entry.retry_count = 1
+        app_module.db.session.commit()
+
+    dispatch_response = client.post(
+        "/api/runtime/dispatch",
+        json={"queue_entry_id": queue_entry_id},
+    )
+
+    assert dispatch_response.status_code == 200
+    assert dispatch_response.get_json()["results"][0]["success"] is True
+
+    description = fake_crew_class.last_kwargs["tasks"][0].kwargs["description"]
+    assert "GUARDRAILS DE MISSION CONTROL" in description
+    assert "python_first" in description
+    assert "MEMORIA OPERATIVA DEL BLUEPRINT" in description
+    assert "Primera ejecucion rechazada" in description
+    assert "FEEDBACK DEL INTENTO ANTERIOR" in description
+    assert "faltan tests" in description
+    assert "Faltan tests y trazabilidad." in description
+
+
 def test_runtime_dispatch_supports_retro_seed_override(tmp_path, monkeypatch):
     _, fake_crew_class, _ = install_fake_crewai(monkeypatch)
     app, _ = build_phase3_app(tmp_path, monkeypatch)
