@@ -122,9 +122,15 @@ def test_spec_intake_service_builds_blueprint(sample_spec_files):
     assert blueprint.certified_input.technology_guidance is not None
     assert blueprint.certified_input.technology_guidance.philosophy == "python_first"
     assert blueprint.certified_input.architecture_synthesis is not None
+    assert blueprint.certified_input.confidence_assessment is not None
+    assert blueprint.certified_input.question_budget is not None
+    assert blueprint.certified_input.human_escalation is not None
     assert blueprint.certified_input.architecture_synthesis.nfr_candidates
     assert blueprint.certified_input.architecture_synthesis.technical_contracts
     assert blueprint.certified_input.architecture_synthesis.adr_bootstrap
+    assert blueprint.certified_input.confidence_assessment.recommended_status == "ready_for_planning"
+    assert blueprint.certified_input.question_budget.open_questions_count == 0
+    assert blueprint.certified_input.human_escalation.required is False
     assert "Python" in blueprint.certified_input.technology_guidance.selection_policy
     assert any(
         document.doc_type == "requirements.generated.md"
@@ -176,6 +182,8 @@ def test_spec_intake_preview_endpoint_returns_blueprint(sample_spec_files, tmp_p
     assert payload["certified_input"]["documents"][0]["doc_type"] == "requirements.generated.md"
     assert payload["certified_input"]["technology_guidance"]["philosophy"] == "python_first"
     assert payload["certified_input"]["architecture_synthesis"]["nfr_candidates"]
+    assert payload["certified_input"]["confidence_assessment"]["recommended_status"] == "ready_for_planning"
+    assert payload["certified_input"]["human_escalation"]["required"] is False
 
 
 def test_certified_input_highlights_platform_exceptions(tmp_path):
@@ -306,6 +314,7 @@ def test_spec_intake_service_normalizes_example_project_dossier(example_project_
     assert blueprint.certified_input is not None
     assert blueprint.certified_input.source_input_kind == "roadmap_dossier"
     assert blueprint.certified_input.certification_status == "needs_operator_review"
+    assert blueprint.certified_input.human_escalation.required is True
     assert any(epic.name.startswith("Fase 0") for epic in blueprint.roadmap_epics)
 
 
@@ -337,8 +346,37 @@ def test_architecture_synthesizer_closes_gaps_for_open_use_case():
     assert any(candidate.category == "auditability" for candidate in architecture.nfr_candidates)
     assert any(candidate.category == "determinism" for candidate in architecture.nfr_candidates)
     assert any("wallets" in question.lower() or "gas" in question.lower() for question in architecture.open_questions)
+    assert blueprint.certified_input.question_budget is not None
+    assert blueprint.certified_input.question_budget.critical_questions_count >= 1
+    assert blueprint.certified_input.human_escalation is not None
+    assert blueprint.certified_input.human_escalation.required is True
+    assert blueprint.certified_input.human_escalation.recommended_action == "operator_review"
     assert any(
         "backend central" in document.content.lower()
         for document in blueprint.certified_input.documents
         if document.doc_type == "nfrs.candidates.md"
     )
+
+
+def test_vague_use_case_is_marked_as_insufficient_input():
+    service_module = load_module("spec_intake.service")
+    service = service_module.SpecIntakeService()
+
+    blueprint = service.build_blueprint_from_input_artifacts(
+        input_artifacts=[
+            {
+                "label": "brief.md",
+                "content": "Necesito una app.",
+            }
+        ]
+    )
+
+    certified_input = blueprint.certified_input
+    assert certified_input is not None
+    assert certified_input.source_input_kind == "use_case_only"
+    assert certified_input.confidence_assessment is not None
+    assert certified_input.confidence_assessment.score < certified_input.confidence_assessment.review_threshold
+    assert certified_input.confidence_assessment.recommended_status == "insufficient_input"
+    assert certified_input.human_escalation is not None
+    assert certified_input.human_escalation.recommended_action == "collect_more_input"
+    assert certified_input.certification_status == "insufficient_input"

@@ -114,6 +114,39 @@ class ArchitectureSynthesis:
 
 
 @dataclass(frozen=True)
+class ConfidenceFactor:
+    label: str
+    impact: float
+    rationale: str
+
+
+@dataclass(frozen=True)
+class ConfidenceAssessment:
+    score: float
+    ready_threshold: float
+    review_threshold: float
+    recommended_status: str
+    factors: list[ConfidenceFactor] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class QuestionBudget:
+    max_questions: int
+    open_questions_count: int
+    critical_questions_count: int
+    remaining_questions: int
+    exceeded: bool
+    blocking_questions: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HumanEscalationDecision:
+    required: bool
+    recommended_action: str
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class CertifiedDocument:
     doc_type: str
     title: str
@@ -136,6 +169,9 @@ class CertifiedInput:
     traceability_map: list[CertifiedTraceabilityEntry] = field(default_factory=list)
     technology_guidance: TechnologyGuidance | None = None
     architecture_synthesis: ArchitectureSynthesis | None = None
+    confidence_assessment: ConfidenceAssessment | None = None
+    question_budget: QuestionBudget | None = None
+    human_escalation: HumanEscalationDecision | None = None
 
 
 @dataclass(frozen=True)
