@@ -1,0 +1,54 @@
+# ============================================================================
+# Configuracion de ejemplo para Plane en Mission Control
+# ============================================================================
+#
+# Copia este archivo como .plane-config y ajusta los valores.
+# Luego ejecuta:
+#   source .plane-config
+#   ./migrate_to_plane.sh
+#
+# ============================================================================ 
+
+# URL de tu instancia de Plane (sin trailing slash)
+# En este entorno local Plane entra por el proxy en http://localhost.
+# No uses localhost:8000; ese puerto corresponde a otro servicio.
+export PLANE_URL="http://localhost"
+
+# API Token
+# IMPORTANTE: no commitees el token real.
+export PLANE_TOKEN="plane_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Workspace slug
+export PLANE_WORKSPACE="growth-guard"
+
+# Project UUID de Mission Control
+export PLANE_PROJECT="af50161e-df27-43e1-b8cf-eb62868800c6"
+
+# ============================================================================
+# Como obtener los valores
+# ============================================================================
+#
+# 1. PLANE_URL:
+#    - Local self-hosted con proxy: http://localhost
+#    - Plane Cloud: https://app.plane.so
+#
+# 2. PLANE_TOKEN:
+#    - Plane > Settings > API Tokens
+#
+# 3. PLANE_WORKSPACE:
+#    - Visible en la URL del workspace
+#
+# 4. PLANE_PROJECT:
+#    - Visible en la URL del proyecto
+#    - O via API:
+#      curl -H "X-Api-Key: $PLANE_TOKEN" \
+#        "$PLANE_URL/api/v1/workspaces/$PLANE_WORKSPACE/projects/"
+#
+# ============================================================================
+# Uso
+# ============================================================================
+#
+# source .plane-config
+# ./migrate_to_plane.sh
+# ./update-plane-tickets.sh list
+# ./update-plane-tickets.sh show AG-110
