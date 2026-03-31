@@ -209,6 +209,8 @@ class CrewAIExecutor:
         source_message = db.session.get(Message, task.message_id)
         task_id = source_message.task_id if source_message else None
         context_lines = [
+            "[MISSION CONTROL WORK]",
+            "",
             f"Queue ID: {task.queue_id}",
             f"Target agent: {task.target_agent}",
             f"From agent: {task.from_agent}",
@@ -218,12 +220,35 @@ class CrewAIExecutor:
             f"Resolved model profile: {profile.name} ({profile.model})",
             f"Available tools: {', '.join(tool['name'] if isinstance(tool, dict) else getattr(tool, 'name', str(tool)) for tool in self.tool_catalog.describe_for_seed(seed))}",
         ]
+        if "workspace" in seed.tool_groups:
+            context_lines.append(
+                "Workspace rule: para cambios multiarchivo usa workspace_write_file o workspace_apply_markdown_bundle; no dejes bundles sin aplicar."
+            )
         if task_id is not None:
             context_lines.append(f"Task ID: {task_id}")
         if task.project_blueprint_id is not None:
             context_lines.append(f"Project Blueprint ID: {task.project_blueprint_id}")
         if task.delivery_task_id is not None:
             context_lines.append(f"Delivery Task ID: {task.delivery_task_id}")
+        guardrail_context = self.tool_catalog.build_guardrail_prompt_context(
+            blueprint_id=task.project_blueprint_id
+        )
+        if guardrail_context:
+            context_lines.extend(["", guardrail_context])
+        memory_context = self.tool_catalog.build_memory_prompt_context(
+            blueprint_id=task.project_blueprint_id,
+            delivery_task_id=task.delivery_task_id,
+        )
+        if memory_context:
+            context_lines.extend(["", memory_context])
+        retry_feedback_context = self.tool_catalog.build_retry_feedback_prompt_context(
+            blueprint_id=task.project_blueprint_id,
+            delivery_task_id=task.delivery_task_id,
+            retry_count=task.retry_count,
+        )
+        if retry_feedback_context:
+            context_lines.extend(["", retry_feedback_context])
+        context_lines.append("")
         context_lines.append("Instruction:")
         context_lines.append(task.content)
         return "\n".join(context_lines)

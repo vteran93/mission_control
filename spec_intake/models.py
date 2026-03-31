@@ -104,6 +104,7 @@ class ProjectBlueprint:
     requirements: list[RequirementItem]
     roadmap_epics: list[RoadmapEpic]
     acceptance_items: list[str]
+    delivery_guardrails: dict[str, Any] = field(default_factory=dict)
     issues: list[str] = field(default_factory=list)
     certified_input: CertifiedInput | None = None
 

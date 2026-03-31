@@ -3,22 +3,40 @@ from __future__ import annotations
 from pathlib import Path
 
 from .certification import build_certified_input
+from .flexible_inputs import build_source_documents_from_artifacts
 from .models import ProjectBlueprint
-from .parser import parse_requirements, parse_roadmap, parse_spec_document
+from .parser import parse_requirements, parse_roadmap
 
 
 class SpecIntakeService:
-    """Builds a first-pass blueprint from requirements and roadmap documents."""
+    """Builds a first-pass blueprint from formal specs or normalized input artifacts."""
 
     def build_blueprint(
         self,
         *,
         requirements_path: str | Path,
         roadmap_path: str | Path,
+        delivery_guardrails: dict | None = None,
     ) -> ProjectBlueprint:
-        requirements_document = parse_spec_document(requirements_path, doc_type="requirements")
-        roadmap_document = parse_spec_document(roadmap_path, doc_type="roadmap")
+        return self.build_blueprint_from_input_artifacts(
+            input_artifacts=[
+                {"path": requirements_path, "role": "requirements"},
+                {"path": roadmap_path, "role": "roadmap"},
+            ],
+            delivery_guardrails=delivery_guardrails,
+        )
 
+    def build_blueprint_from_input_artifacts(
+        self,
+        *,
+        input_artifacts: list[object],
+        delivery_guardrails: dict | None = None,
+    ) -> ProjectBlueprint:
+        classification, source_documents = build_source_documents_from_artifacts(input_artifacts)
+        requirements_document = next(
+            document for document in source_documents if document.doc_type == "requirements"
+        )
+        roadmap_document = next(document for document in source_documents if document.doc_type == "roadmap")
         requirements = parse_requirements(requirements_document)
         roadmap_epics = parse_roadmap(roadmap_document)
 
@@ -35,14 +53,15 @@ class SpecIntakeService:
 
         blueprint = ProjectBlueprint(
             project_name=project_name,
-            source_documents=[requirements_document, roadmap_document],
+            source_documents=source_documents,
             capabilities=capabilities,
             requirements=requirements,
             roadmap_epics=roadmap_epics,
             acceptance_items=acceptance_items,
+            delivery_guardrails=dict(delivery_guardrails or {}),
             issues=issues,
         )
-        certified_input = build_certified_input(blueprint)
+        certified_input = build_certified_input(blueprint, source_input_kind=classification.shape_kind)
         return ProjectBlueprint(
             project_name=blueprint.project_name,
             source_documents=blueprint.source_documents,
@@ -50,6 +69,7 @@ class SpecIntakeService:
             requirements=blueprint.requirements,
             roadmap_epics=blueprint.roadmap_epics,
             acceptance_items=blueprint.acceptance_items,
+            delivery_guardrails=blueprint.delivery_guardrails,
             issues=blueprint.issues,
             certified_input=certified_input,
         )

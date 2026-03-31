@@ -196,13 +196,16 @@ Crear un modulo de Terraform con un recurso S3 basico en una carpeta infra.
     return app, database_module, requirements_path, roadmap_path, workspace_root, fake_crew_class
 
 
-def import_blueprint(client, requirements_path, roadmap_path):
+def import_blueprint(client, requirements_path, roadmap_path, delivery_guardrails=None):
+    payload = {
+        "requirements_path": str(requirements_path),
+        "roadmap_path": str(roadmap_path),
+    }
+    if delivery_guardrails is not None:
+        payload["delivery_guardrails"] = delivery_guardrails
     response = client.post(
         "/api/blueprints/import",
-        json={
-            "requirements_path": str(requirements_path),
-            "roadmap_path": str(roadmap_path),
-        },
+        json=payload,
     )
     assert response.status_code == 201
     return response.get_json()
@@ -484,3 +487,48 @@ def test_delivery_guardrails_block_forbidden_workspace_paths(
     )
     assert preview_response.status_code == 400
     assert "Path blocked by architecture guardrails" in preview_response.get_json()["error"]
+
+
+def test_delivery_guardrails_preview_merges_project_overrides(configured_phase5_app):
+    app, _database_module, requirements_path, roadmap_path, workspace_root, fake_crew_class = configured_phase5_app
+    client = app.test_client()
+    delivery_guardrails = {
+        "prompt": {
+            "principles": ["KISS"],
+        },
+        "runtime": {
+            "protected_path_prefixes": ["docs/"],
+            "protected_files": ["README.md"],
+            "forbidden_command_patterns": ["curl "],
+        },
+    }
+    blueprint = import_blueprint(
+        client,
+        requirements_path,
+        roadmap_path,
+        delivery_guardrails=delivery_guardrails,
+    )
+    blueprint_id = blueprint["id"]
+
+    fake_crew_class.kickoff_plan = [
+        types.SimpleNamespace(
+            raw='{"approval_status":"approved","summary":"Plan listo para revisar guardrails por proyecto","risks":[],"actions":["ejecutar"]}'
+        )
+    ]
+    plan_response = client.post(
+        f"/api/blueprints/{blueprint_id}/scrum-plan",
+        json={"sprint_capacity": 12},
+    )
+    assert plan_response.status_code == 201
+
+    preview_response = client.post(
+        f"/api/blueprints/{blueprint_id}/delivery/guardrails/preview",
+        json={"workspace_root": str(workspace_root)},
+    )
+    assert preview_response.status_code == 200
+    payload = preview_response.get_json()
+
+    assert payload["guardrails"]["project_guardrails"] == delivery_guardrails
+    assert "docs/" in payload["guardrails"]["forbidden_path_prefixes"]
+    assert "README.md" in payload["guardrails"]["forbidden_path_globs"]
+    assert "curl" in payload["guardrails"]["forbidden_command_patterns"]

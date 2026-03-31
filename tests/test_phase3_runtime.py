@@ -110,7 +110,7 @@ def build_phase3_app(tmp_path, monkeypatch):
     return app, app_module
 
 
-def import_minimal_blueprint(client, tmp_path):
+def import_minimal_blueprint(client, tmp_path, delivery_guardrails=None):
     requirements_path = tmp_path / "requirements.md"
     roadmap_path = tmp_path / "roadmap.md"
 
@@ -145,12 +145,16 @@ Conectar dispatch al runtime agentic.
         encoding="utf-8",
     )
 
+    payload = {
+        "requirements_path": str(requirements_path),
+        "roadmap_path": str(roadmap_path),
+    }
+    if delivery_guardrails is not None:
+        payload["delivery_guardrails"] = delivery_guardrails
+
     response = client.post(
         "/api/blueprints/import",
-        json={
-            "requirements_path": str(requirements_path),
-            "roadmap_path": str(roadmap_path),
-        },
+        json=payload,
     )
     assert response.status_code == 201
     return response.get_json()
@@ -192,6 +196,7 @@ def test_runtime_exposes_tools_and_crew_seeds(tmp_path, monkeypatch):
     tools_payload = tools_response.get_json()
     tool_names = {item["name"] for item in tools_payload}
     assert "workspace_write_file" in tool_names
+    assert "workspace_apply_markdown_bundle" in tool_names
     assert "workspace_run_unix_command" in tool_names
     assert "workspace_run_mypy" in tool_names
     assert "workspace_package_manager_context" in tool_names
@@ -208,8 +213,37 @@ def test_runtime_exposes_tools_and_crew_seeds(tmp_path, monkeypatch):
 
     assert health_response.status_code == 200
     health_payload = health_response.get_json()
-    assert health_payload["toolkit"]["tool_count"] >= 11
+    assert health_payload["toolkit"]["tool_count"] >= 12
     assert "retro" in health_payload["toolkit"]["crew_seeds"]
+
+
+def test_runtime_workspace_bundle_endpoint_applies_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("MISSION_CONTROL_BASE_DIR", str(tmp_path))
+    install_fake_crewai(monkeypatch)
+    app, _ = build_phase3_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/runtime/workspace/apply-markdown-bundle",
+        json={
+            "bundle_markdown": """```python
+# filepath: generated/example.py
+print("hola runtime")
+```
+
+```html
+<!-- filepath: frontend/index.html -->
+<main>hola runtime</main>
+```
+"""
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["file_count"] == 2
+    assert (tmp_path / "generated" / "example.py").read_text(encoding="utf-8") == 'print("hola runtime")'
+    assert (tmp_path / "frontend" / "index.html").read_text(encoding="utf-8") == "<main>hola runtime</main>"
 
 
 def test_runtime_dispatch_executes_crewai_seed_and_persists_output(tmp_path, monkeypatch):
@@ -267,6 +301,7 @@ def test_runtime_dispatch_executes_crewai_seed_and_persists_output(tmp_path, mon
     agent_tools = fake_crew_class.last_kwargs["agents"][0].kwargs["tools"]
     assert {tool.name for tool in agent_tools} >= {
         "workspace_write_file",
+        "workspace_apply_markdown_bundle",
         "workspace_run_unix_command",
         "workspace_run_mypy",
     }
@@ -376,6 +411,100 @@ def test_runtime_dispatch_persists_canonical_tracking_records(tmp_path, monkeypa
         assert invocation.metadata_json["attempt_number"] == 1
 
     assert fake_crew_class.last_kwargs["name"] == "intake"
+
+
+def test_runtime_dispatch_injects_guardrails_memory_and_retry_feedback(tmp_path, monkeypatch):
+    _, fake_crew_class, _ = install_fake_crewai(monkeypatch)
+    app, app_module = build_phase3_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    blueprint = import_minimal_blueprint(
+        client,
+        tmp_path,
+        delivery_guardrails={
+            "prompt": {
+                "principles": ["KISS"],
+                "forbidden_patterns": ["No placeholders"],
+            }
+        },
+    )
+    blueprint_id = blueprint["id"]
+    delivery_task_id = blueprint["roadmap_epics"][0]["tickets"][0]["id"]
+
+    with app.app_context():
+        database_module = importlib.import_module("database")
+        agent_run = database_module.AgentRunRecord(
+            project_blueprint_id=blueprint_id,
+            agent_name="semi_automatic_delivery",
+            agent_role="delivery",
+            provider="mission_control",
+            model="seeded",
+            status="failed",
+            output_summary="Intento previo con hallazgos",
+            error_message="faltan tests y trazabilidad",
+            runtime_name="test",
+        )
+        app_module.db.session.add(agent_run)
+        app_module.db.session.flush()
+        app_module.db.session.add(
+            database_module.TaskExecutionRecord(
+                project_blueprint_id=blueprint_id,
+                delivery_task_id=delivery_task_id,
+                agent_run_id=agent_run.id,
+                status="failed",
+                attempt_number=1,
+                summary="Primera ejecucion rechazada",
+                error_message="faltan tests",
+            )
+        )
+        app_module.db.session.add(
+            database_module.StageFeedbackRecord(
+                project_blueprint_id=blueprint_id,
+                stage_name="review",
+                status="changes_requested",
+                source="semi_automatic_delivery",
+                feedback_text="Faltan tests y trazabilidad.",
+            )
+        )
+        app_module.db.session.commit()
+
+    queue_response = client.post(
+        "/api/send-agent-message",
+        json={
+            "target_agent": "jarvis-dev",
+            "message": "Corrige el ticket con los hallazgos previos.",
+            "project_blueprint_id": blueprint_id,
+            "delivery_task_id": delivery_task_id,
+            "crew_seed": "delivery",
+        },
+    )
+    assert queue_response.status_code == 200
+    queue_entry_id = queue_response.get_json()["queue_entry_id"]
+
+    with app.app_context():
+        queue_entry = app_module.db.session.get(app_module.TaskQueue, queue_entry_id)
+        queue_entry.retry_count = 1
+        app_module.db.session.commit()
+
+    dispatch_response = client.post(
+        "/api/runtime/dispatch",
+        json={"queue_entry_id": queue_entry_id},
+    )
+
+    assert dispatch_response.status_code == 200
+    assert dispatch_response.get_json()["results"][0]["success"] is True
+
+    description = fake_crew_class.last_kwargs["tasks"][0].kwargs["description"]
+    assert "GUARDRAILS DE MISSION CONTROL" in description
+    assert "python_first" in description
+    assert "Guardrails persistidos por blueprint" in description
+    assert "Principio: KISS" in description
+    assert "Patron prohibido: No placeholders" in description
+    assert "MEMORIA OPERATIVA DEL BLUEPRINT" in description
+    assert "Primera ejecucion rechazada" in description
+    assert "FEEDBACK DEL INTENTO ANTERIOR" in description
+    assert "faltan tests" in description
+    assert "Faltan tests y trazabilidad." in description
 
 
 def test_runtime_dispatch_supports_retro_seed_override(tmp_path, monkeypatch):

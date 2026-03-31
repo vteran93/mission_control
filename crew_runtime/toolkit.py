@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import shlex
 import subprocess
@@ -21,9 +22,12 @@ from delivery_tracking import DeliveryTrackingService
 from spec_intake import BlueprintPersistenceService
 
 from .crew_seeds import CrewSeed
+from workspace_markdown_bundle import extract_markdown_file_bundle
 
 
 MAX_TOOL_OUTPUT_CHARS = 6000
+MAX_PROMPT_CONTEXT_ITEMS = 6
+MAX_PROMPT_CONTEXT_CHARS = 280
 
 
 @dataclass(frozen=True)
@@ -95,6 +99,11 @@ TOOL_SPECS: tuple[RuntimeToolSpec, ...] = (
         name="workspace_write_file",
         category="workspace",
         description="Crea o actualiza archivos dentro del workspace para implementar codigo o configuracion.",
+    ),
+    RuntimeToolSpec(
+        name="workspace_apply_markdown_bundle",
+        category="workspace",
+        description="Aplica un bundle Markdown con bloques filepath (#, // o <!-- -->) y escribe los archivos resultantes.",
     ),
     RuntimeToolSpec(
         name="workspace_run_unix_command",
@@ -222,6 +231,16 @@ class RuntimeToolCatalog:
             """Crea o actualiza un archivo del workspace con contenido nuevo."""
             return catalog.write_workspace_file(path=path, content=content, overwrite=overwrite)
 
+        @tool("workspace_apply_markdown_bundle")
+        def workspace_apply_markdown_bundle(bundle_markdown: str, overwrite: bool = True) -> str:
+            """Aplica un bundle Markdown con filepath directives y escribe los archivos en el workspace."""
+            return catalog._dump_payload(
+                catalog.apply_markdown_bundle(
+                    bundle_markdown=bundle_markdown,
+                    overwrite=overwrite,
+                )
+            )
+
         @tool("workspace_run_unix_command")
         def workspace_run_unix_command(command: str, cwd: str = ".", timeout_seconds: int = 120) -> str:
             """Ejecuta un comando Unix en el workspace y devuelve salida estructurada."""
@@ -255,6 +274,7 @@ class RuntimeToolCatalog:
             "workspace_package_manager_context": workspace_package_manager_context,
             "workspace_read_file": workspace_read_file,
             "workspace_write_file": workspace_write_file,
+            "workspace_apply_markdown_bundle": workspace_apply_markdown_bundle,
             "workspace_run_unix_command": workspace_run_unix_command,
             "workspace_run_mypy": workspace_run_mypy,
             "workspace_run_tests": workspace_run_tests,
@@ -277,8 +297,10 @@ class RuntimeToolCatalog:
             "project_name": detail["project_name"],
             "capabilities": detail["capabilities"],
             "issues": detail["issues"],
+            "certified_input": detail["certified_input"],
+            "delivery_guardrails": detail["delivery_guardrails"],
             "summary": detail["summary"],
-            "requirements": detail["requirements"][:20],
+            "requirements": detail["requirements"],
             "roadmap_epics": detail["roadmap_epics"],
             "active_scrum_plan": active_scrum_plan,
             "sprint_readiness": sprint_readiness,
@@ -289,13 +311,280 @@ class RuntimeToolCatalog:
         for epic in blueprint.delivery_epics:
             for task in epic.delivery_tasks:
                 if task.id == delivery_task_id:
+                    recent_executions = sorted(
+                        list(task.task_executions),
+                        key=lambda item: (
+                            item.attempt_number,
+                            item.completed_at or item.started_at or datetime.min,
+                        ),
+                        reverse=True,
+                    )
                     return {
                         "blueprint_id": blueprint_id,
                         "project_name": blueprint.project_name,
                         "epic": epic.to_dict(),
                         "task": task.to_dict(),
+                        "recent_executions": [item.to_dict() for item in recent_executions[:5]],
                     }
         raise LookupError("Delivery task not found for blueprint")
+
+    def build_guardrail_prompt_context(self, *, blueprint_id: int | None) -> str:
+        if blueprint_id is None:
+            return ""
+
+        blueprint = self._get_blueprint(blueprint_id)
+        detail = self.persistence_service.serialize_blueprint_detail(blueprint)
+        certified_input = detail.get("certified_input") or {}
+        technology_guidance = certified_input.get("technology_guidance") or {}
+        delivery_guardrails = detail.get("delivery_guardrails") or {}
+        active_policy = find_guardrail_policy(self.workspace_root, stop_path=self.workspace_root)
+
+        lines = [
+            "=" * 60,
+            "GUARDRAILS DE MISSION CONTROL",
+            "Respeta estas restricciones antes de ejecutar cambios.",
+            "=" * 60,
+        ]
+
+        contract_name = certified_input.get("contract_name")
+        if contract_name:
+            lines.append("")
+            lines.append("## Intake certificado")
+            lines.append(
+                f"- Contrato: {contract_name} v{certified_input.get('contract_version', 'n/a')}"
+            )
+            lines.append(
+                f"- Source input kind: {certified_input.get('source_input_kind', 'unknown')}"
+            )
+            lines.append(
+                f"- Certification status: {certified_input.get('certification_status', 'unknown')}"
+            )
+            lines.append(
+                f"- Confidence score: {certified_input.get('confidence_score', 0.0):.2f}"
+            )
+
+        if technology_guidance:
+            lines.append("")
+            lines.append("## Technology guidance")
+            lines.append(
+                f"- Filosofia: {technology_guidance.get('philosophy', 'n/a')}"
+            )
+            lines.append(
+                f"- Politica de seleccion: {technology_guidance.get('selection_policy', 'n/a')}"
+            )
+            for item in list(technology_guidance.get("preferred_stack") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Stack preferido: {item}")
+            for item in list(technology_guidance.get("compatibility_exceptions") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Excepcion permitida: {item}")
+            for item in list(technology_guidance.get("decision_notes") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Nota tecnica: {item}")
+
+        issues = list(detail.get("issues") or [])
+        if issues:
+            lines.append("")
+            lines.append("## Riesgos conocidos del blueprint")
+            for issue in issues[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- {self._truncate_prompt_text(str(issue))}")
+
+        prompt_guardrails = delivery_guardrails.get("prompt")
+        if not isinstance(prompt_guardrails, dict):
+            prompt_guardrails = delivery_guardrails
+        if isinstance(prompt_guardrails, dict) and prompt_guardrails:
+            lines.append("")
+            lines.append("## Guardrails persistidos por blueprint")
+            tech_stack = prompt_guardrails.get("tech_stack") or {}
+            for area, stack in list(tech_stack.items())[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Tech stack {area}: {self._truncate_prompt_text(json.dumps(stack, ensure_ascii=False))}")
+            for item in list(prompt_guardrails.get("forbidden_patterns") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Patron prohibido: {self._truncate_prompt_text(str(item))}")
+            for item in list(prompt_guardrails.get("principles") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Principio: {self._truncate_prompt_text(str(item))}")
+            for item in list(prompt_guardrails.get("protected_files") or [])[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(f"- Archivo protegido: {self._truncate_prompt_text(str(item))}")
+            forbidden_libraries = list(prompt_guardrails.get("forbidden_libraries") or [])[:MAX_PROMPT_CONTEXT_ITEMS]
+            for item in forbidden_libraries:
+                if isinstance(item, dict):
+                    lines.append(
+                        f"- Libreria prohibida: {item.get('name', 'n/a')} | motivo={self._truncate_prompt_text(str(item.get('reason', 'n/a')))}"
+                    )
+                else:
+                    lines.append(f"- Libreria prohibida: {self._truncate_prompt_text(str(item))}")
+
+        if active_policy is not None:
+            _policy_root, policy = active_policy
+            lines.append("")
+            lines.append("## Workspace guardrails activos")
+            if policy.allowed_write_paths:
+                allowed_paths = list(policy.allowed_write_paths)[:MAX_PROMPT_CONTEXT_ITEMS]
+                lines.append(f"- Allowed write paths: {', '.join(allowed_paths)}")
+            if policy.allowed_write_roots:
+                allowed_roots = list(policy.allowed_write_roots)[:MAX_PROMPT_CONTEXT_ITEMS]
+                lines.append(f"- Allowed write roots: {', '.join(allowed_roots)}")
+            if policy.forbidden_path_prefixes:
+                forbidden_prefixes = list(policy.forbidden_path_prefixes)[:MAX_PROMPT_CONTEXT_ITEMS]
+                lines.append(f"- Forbidden path prefixes: {', '.join(forbidden_prefixes)}")
+            if policy.forbidden_path_globs:
+                forbidden_globs = list(policy.forbidden_path_globs)[:MAX_PROMPT_CONTEXT_ITEMS]
+                lines.append(f"- Forbidden path globs: {', '.join(forbidden_globs)}")
+            if policy.forbidden_command_patterns:
+                forbidden_commands = list(policy.forbidden_command_patterns)[:MAX_PROMPT_CONTEXT_ITEMS]
+                lines.append(f"- Forbidden command patterns: {', '.join(forbidden_commands)}")
+
+        if len(lines) <= 4:
+            return ""
+        return "\n".join(lines)
+
+    def build_memory_prompt_context(
+        self,
+        *,
+        blueprint_id: int | None,
+        delivery_task_id: int | None,
+    ) -> str:
+        if blueprint_id is None:
+            return ""
+
+        blueprint = self._get_blueprint(blueprint_id)
+        lines = [
+            "=" * 60,
+            "MEMORIA OPERATIVA DEL BLUEPRINT",
+            "=" * 60,
+        ]
+        has_content = False
+
+        completed_by_task: dict[int, Any] = {}
+        completed_executions = sorted(
+            list(blueprint.task_executions),
+            key=lambda item: (
+                item.completed_at or item.started_at or datetime.min,
+                item.attempt_number,
+            ),
+            reverse=True,
+        )
+        for execution in completed_executions:
+            if execution.status != "done":
+                continue
+            if delivery_task_id is not None and execution.delivery_task_id == delivery_task_id:
+                continue
+            completed_by_task.setdefault(execution.delivery_task_id, execution)
+
+        if completed_by_task:
+            has_content = True
+            lines.append("")
+            lines.append("## Tareas ya completadas")
+            for execution in list(completed_by_task.values())[:MAX_PROMPT_CONTEXT_ITEMS]:
+                task = execution.delivery_task
+                ticket_ref = task.ticket_id if task is not None else f"task-{execution.delivery_task_id}"
+                task_title = task.title if task is not None else "sin titulo"
+                lines.append(
+                    f"- {ticket_ref}: {task_title} | attempt={execution.attempt_number} | "
+                    f"status={execution.status} | summary={self._truncate_prompt_text(execution.summary or '')}"
+                )
+
+        if delivery_task_id is not None:
+            current_attempts = sorted(
+                [
+                    execution
+                    for execution in blueprint.task_executions
+                    if execution.delivery_task_id == delivery_task_id
+                ],
+                key=lambda item: item.attempt_number,
+                reverse=True,
+            )
+            if current_attempts:
+                has_content = True
+                lines.append("")
+                lines.append("## Estado actual de la tarea")
+                for execution in current_attempts[:MAX_PROMPT_CONTEXT_ITEMS]:
+                    lines.append(
+                        f"- intento={execution.attempt_number} status={execution.status} "
+                        f"summary={self._truncate_prompt_text(execution.summary or '')}"
+                    )
+                    if execution.error_message:
+                        lines.append(
+                            f"  error={self._truncate_prompt_text(execution.error_message)}"
+                        )
+
+        recent_feedback = sorted(
+            list(blueprint.stage_feedback),
+            key=lambda item: item.created_at or datetime.min,
+            reverse=True,
+        )
+        if recent_feedback:
+            has_content = True
+            lines.append("")
+            lines.append("## Feedback reciente")
+            for feedback in recent_feedback[:MAX_PROMPT_CONTEXT_ITEMS]:
+                lines.append(
+                    f"- [{feedback.stage_name}/{feedback.status}] {feedback.source}: "
+                    f"{self._truncate_prompt_text(feedback.feedback_text)}"
+                )
+
+        return "\n".join(lines) if has_content else ""
+
+    def build_retry_feedback_prompt_context(
+        self,
+        *,
+        blueprint_id: int | None,
+        delivery_task_id: int | None,
+        retry_count: int,
+    ) -> str:
+        if blueprint_id is None or retry_count <= 0:
+            return ""
+
+        blueprint = self._get_blueprint(blueprint_id)
+        lines = [
+            "=" * 60,
+            f"FEEDBACK DEL INTENTO ANTERIOR (retry_count={retry_count})",
+            "Corrige los issues previos y no repitas el mismo fallo.",
+            "=" * 60,
+        ]
+        has_content = False
+
+        current_attempts = [
+            execution
+            for execution in blueprint.task_executions
+            if delivery_task_id is None or execution.delivery_task_id == delivery_task_id
+        ]
+        current_attempts = sorted(
+            current_attempts,
+            key=lambda item: (
+                item.attempt_number,
+                item.completed_at or item.started_at or datetime.min,
+            ),
+            reverse=True,
+        )
+        for execution in current_attempts:
+            if execution.status in {"failed", "blocked", "review"}:
+                has_content = True
+                task = execution.delivery_task
+                ticket_ref = task.ticket_id if task is not None else f"task-{execution.delivery_task_id}"
+                lines.append("")
+                lines.append(
+                    f"- Ultimo intento fallido para {ticket_ref}: attempt={execution.attempt_number} "
+                    f"status={execution.status}"
+                )
+                if execution.summary:
+                    lines.append(f"  summary={self._truncate_prompt_text(execution.summary)}")
+                if execution.error_message:
+                    lines.append(f"  error={self._truncate_prompt_text(execution.error_message)}")
+                break
+
+        recent_feedback = sorted(
+            list(blueprint.stage_feedback),
+            key=lambda item: item.created_at or datetime.min,
+            reverse=True,
+        )
+        if recent_feedback:
+            has_content = True
+            lines.append("")
+            lines.append("## Ultimo feedback de etapa")
+            for feedback in recent_feedback[:2]:
+                lines.append(
+                    f"- [{feedback.stage_name}/{feedback.status}] {feedback.source}: "
+                    f"{self._truncate_prompt_text(feedback.feedback_text)}"
+                )
+
+        return "\n".join(lines) if has_content else ""
 
     def get_feedback_digest(self, blueprint_id: int) -> dict[str, Any]:
         blueprint = self._get_blueprint(blueprint_id)
@@ -409,6 +698,30 @@ class RuntimeToolCatalog:
             ensure_ascii=False,
         )
 
+    def apply_markdown_bundle(self, *, bundle_markdown: str, overwrite: bool = True) -> dict[str, Any]:
+        files = extract_markdown_file_bundle(bundle_markdown)
+        written_files: list[dict[str, Any]] = []
+        for file in files:
+            write_result = json.loads(
+                self.write_workspace_file(
+                    path=file.path,
+                    content=file.content,
+                    overwrite=overwrite,
+                )
+            )
+            written_files.append(
+                {
+                    "path": file.path,
+                    "language": file.language,
+                    "bytes": write_result["bytes"],
+                }
+            )
+        return {
+            "status": "written",
+            "file_count": len(written_files),
+            "files": written_files,
+        }
+
     def run_unix_command(
         self,
         *,
@@ -520,6 +833,13 @@ class RuntimeToolCatalog:
         if len(raw_value) <= MAX_TOOL_OUTPUT_CHARS:
             return raw_value
         return raw_value[:MAX_TOOL_OUTPUT_CHARS] + "\n...<truncated>"
+
+    @staticmethod
+    def _truncate_prompt_text(raw_value: str) -> str:
+        value = " ".join((raw_value or "").split())
+        if len(value) <= MAX_PROMPT_CONTEXT_CHARS:
+            return value
+        return value[:MAX_PROMPT_CONTEXT_CHARS] + "..."
 
     @staticmethod
     def _dump_payload(payload: dict[str, Any]) -> str:

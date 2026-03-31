@@ -1110,7 +1110,9 @@ class AutonomousScrumPlannerService:
             actions = self._normalize_review_list(payload.get("actions") or payload.get("follow_up_actions"))
         else:
             lowered = raw_output.lower()
-            if "review_required" in lowered or "requires review" in lowered or "revision" in lowered:
+            if "needs_work" in lowered or "needs work" in lowered:
+                approval_status = "review_required"
+            elif "review_required" in lowered or "requires review" in lowered or "revision" in lowered:
                 approval_status = "review_required"
             elif "approved" in lowered and "not approved" not in lowered:
                 approval_status = "approved"
@@ -1172,7 +1174,9 @@ class AutonomousScrumPlannerService:
 
     @staticmethod
     def _normalize_approval_status(raw_value, *, default: str) -> str:
-        candidate = str(raw_value or "").strip().lower()
+        candidate = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if candidate == "needs_work":
+            return "review_required"
         return candidate if candidate in APPROVAL_STATUSES else default
 
     def _resolve_final_approval_status(

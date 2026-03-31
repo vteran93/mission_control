@@ -84,6 +84,7 @@ class BlueprintPersistenceService:
             capabilities_json=blueprint.capabilities,
             acceptance_items_json=blueprint.acceptance_items,
             issues_json=blueprint.issues,
+            delivery_guardrails_json=blueprint.delivery_guardrails,
         )
         db.session.add(blueprint_record)
         db.session.flush()
@@ -181,6 +182,19 @@ class BlueprintPersistenceService:
         db.session.commit()
         return item
 
+    def update_delivery_guardrails(
+        self,
+        *,
+        blueprint_id: int,
+        delivery_guardrails: dict,
+    ) -> ProjectBlueprintRecord:
+        blueprint = db.session.get(ProjectBlueprintRecord, blueprint_id)
+        if blueprint is None:
+            raise LookupError("Blueprint not found")
+        blueprint.delivery_guardrails_json = dict(delivery_guardrails or {})
+        db.session.commit()
+        return blueprint
+
     def serialize_blueprint_detail(self, blueprint_record: ProjectBlueprintRecord) -> dict[str, object]:
         requirements = sorted(blueprint_record.requirements, key=lambda item: item.order_index)
         epics = sorted(blueprint_record.delivery_epics, key=lambda item: item.order_index)
@@ -249,6 +263,7 @@ class BlueprintPersistenceService:
             "retrospective_items": [item.to_dict() for item in retrospective_items],
             "github_sync_events": [item.to_dict() for item in github_sync_events[:20]],
             "certified_input": certified_input,
+            "delivery_guardrails": blueprint_record.delivery_guardrails_json or {},
             "summary": {
                 "requirements_count": len(requirements),
                 "epics_count": len(epics),
@@ -313,6 +328,7 @@ class BlueprintPersistenceService:
             requirements=requirements,
             roadmap_epics=roadmap_epics,
             acceptance_items=list(blueprint_record.acceptance_items_json or []),
+            delivery_guardrails=dict(blueprint_record.delivery_guardrails_json or {}),
             issues=list(blueprint_record.issues_json or []),
         )
 

@@ -1,5 +1,6 @@
 import importlib
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -89,6 +90,18 @@ Implementar parser de requerimientos.
         app_module.db.create_all()
 
     return app, database_module, requirements_path, roadmap_path
+
+
+@pytest.fixture
+def example_project_dossier_payload():
+    project_root = Path(__file__).resolve().parents[1]
+    dossier_root = project_root / "docs" / "example_project_2"
+    return {
+        "input_artifacts": [
+            str(dossier_root / "VEO3_CLAUDE_INTEGRATION_ROADMAP.md"),
+            str(dossier_root / "AGENTIC_WORKFLOW_CLASS_DIAGRAM.md"),
+        ]
+    }
 
 
 def test_import_blueprint_persists_records(configured_app_with_specs):
@@ -367,3 +380,117 @@ def test_sprint_cycle_rejects_invalid_status(configured_app_with_specs):
 
     assert response.status_code == 400
     assert "Invalid sprint status" in response.get_json()["error"]
+
+
+def test_preview_endpoint_accepts_input_artifacts(configured_app_with_specs):
+    app, _, requirements_path, roadmap_path = configured_app_with_specs
+    client = app.test_client()
+
+    response = client.post(
+        "/api/spec-intake/preview",
+        json={
+            "input_artifacts": [
+                {"path": str(requirements_path), "role": "requirements"},
+                {"path": str(roadmap_path), "role": "roadmap"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["project_name"] == "Plataforma de Automatizacion"
+    assert payload["certified_input"]["source_input_kind"] == "formal_pair"
+
+
+def test_blueprint_delivery_guardrails_are_persisted_and_updatable(configured_app_with_specs):
+    app, database_module, requirements_path, roadmap_path = configured_app_with_specs
+    client = app.test_client()
+    initial_guardrails = {
+        "prompt": {
+            "principles": ["KISS"],
+            "forbidden_patterns": ["No placeholders"],
+            "protected_files": ["README.md"],
+        },
+        "runtime": {
+            "protected_path_prefixes": ["docs/"],
+            "forbidden_command_patterns": ["curl "],
+        },
+    }
+
+    import_response = client.post(
+        "/api/blueprints/import",
+        json={
+            "requirements_path": str(requirements_path),
+            "roadmap_path": str(roadmap_path),
+            "delivery_guardrails": initial_guardrails,
+        },
+    )
+
+    assert import_response.status_code == 201
+    payload = import_response.get_json()
+    blueprint_id = payload["id"]
+    assert payload["delivery_guardrails"] == initial_guardrails
+
+    preview_response = client.post(
+        "/api/spec-intake/preview",
+        json={
+            "input_artifacts": [
+                {"path": str(requirements_path), "role": "requirements"},
+                {"path": str(roadmap_path), "role": "roadmap"},
+            ],
+            "delivery_guardrails": initial_guardrails,
+        },
+    )
+    assert preview_response.status_code == 200
+    assert preview_response.get_json()["delivery_guardrails"] == initial_guardrails
+
+    updated_guardrails = {
+        "prompt": {
+            "principles": ["Python first"],
+            "forbidden_libraries": [{"name": "redux", "reason": "Prefer context local"}],
+        },
+        "runtime": {
+            "protected_files": ["README.md"],
+            "forbidden_path_prefixes": ["ops/"],
+        },
+    }
+    update_response = client.put(
+        f"/api/blueprints/{blueprint_id}/delivery-guardrails",
+        json={"delivery_guardrails": updated_guardrails},
+    )
+    assert update_response.status_code == 200
+    assert update_response.get_json()["delivery_guardrails"] == updated_guardrails
+
+    detail_response = client.get(f"/api/blueprints/{blueprint_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["delivery_guardrails"] == updated_guardrails
+
+    with app.app_context():
+        blueprint_record = database_module.ProjectBlueprintRecord.query.one()
+        assert blueprint_record.delivery_guardrails_json == updated_guardrails
+
+
+def test_import_blueprint_normalizes_example_project_dossier(
+    configured_app_with_specs,
+    example_project_dossier_payload,
+):
+    app, database_module, _, _ = configured_app_with_specs
+    client = app.test_client()
+
+    response = client.post("/api/blueprints/import", json=example_project_dossier_payload)
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["project_name"] == "legatus-video-factory"
+    assert payload["summary"]["epics_count"] >= 5
+    assert payload["summary"]["tickets_count"] >= 10
+    assert payload["summary"]["requirements_count"] >= 8
+    assert payload["certified_input"]["source_input_kind"] == "roadmap_dossier"
+    assert payload["certified_input"]["certification_status"] == "needs_operator_review"
+    assert payload["source_documents"]["requirements"]["metadata"]["Mission Control Source Input Kind"] == (
+        "roadmap_dossier"
+    )
+
+    with app.app_context():
+        assert database_module.ProjectBlueprintRecord.query.count() == 1
+        assert database_module.SpecDocumentRecord.query.count() == 4

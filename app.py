@@ -96,6 +96,63 @@ def register_routes(app: Flask) -> None:
             candidate = Path(app.config["MISSION_CONTROL_BASE_DIR"]) / candidate
         return candidate.resolve()
 
+    def resolve_input_artifacts_payload(payload: dict) -> list[dict[str, str]]:
+        input_artifacts = payload.get("input_artifacts")
+        if input_artifacts is not None:
+            if not isinstance(input_artifacts, list) or not input_artifacts:
+                raise ValueError("input_artifacts must be a non-empty list")
+
+            resolved_artifacts: list[dict[str, str]] = []
+            for artifact in input_artifacts:
+                if isinstance(artifact, str):
+                    resolved_path = resolve_input_path(artifact)
+                    if not resolved_path.is_file():
+                        raise FileNotFoundError(f"input_artifact not found: {resolved_path}")
+                    resolved_artifacts.append({"path": str(resolved_path)})
+                    continue
+
+                if not isinstance(artifact, dict):
+                    raise ValueError("Each input artifact must be a string path or an object")
+
+                resolved_artifact = dict(artifact)
+                raw_path = resolved_artifact.get("path")
+                if raw_path:
+                    resolved_path = resolve_input_path(raw_path)
+                    if not resolved_path.is_file():
+                        raise FileNotFoundError(f"input_artifact not found: {resolved_path}")
+                    resolved_artifact["path"] = str(resolved_path)
+                elif not resolved_artifact.get("content"):
+                    raise ValueError("Each input artifact object requires path or content")
+                resolved_artifacts.append(resolved_artifact)
+
+            return resolved_artifacts
+
+        requirements_path = payload.get("requirements_path")
+        roadmap_path = payload.get("roadmap_path")
+        if not requirements_path or not roadmap_path:
+            raise ValueError("input_artifacts or requirements_path and roadmap_path are required")
+
+        resolved_requirements = resolve_input_path(requirements_path)
+        resolved_roadmap = resolve_input_path(roadmap_path)
+
+        if not resolved_requirements.is_file():
+            raise FileNotFoundError(f"requirements_path not found: {resolved_requirements}")
+        if not resolved_roadmap.is_file():
+            raise FileNotFoundError(f"roadmap_path not found: {resolved_roadmap}")
+
+        return [
+            {"path": str(resolved_requirements), "role": "requirements"},
+            {"path": str(resolved_roadmap), "role": "roadmap"},
+        ]
+
+    def resolve_delivery_guardrails_payload(payload: dict) -> dict:
+        delivery_guardrails = payload.get("delivery_guardrails")
+        if delivery_guardrails is None:
+            return {}
+        if not isinstance(delivery_guardrails, dict):
+            raise ValueError("delivery_guardrails must be an object")
+        return delivery_guardrails
+
     @app.route("/")
     def index():
         cache_bust = int(datetime.now().timestamp())
@@ -203,48 +260,36 @@ def register_routes(app: Flask) -> None:
     @app.route("/api/spec-intake/preview", methods=["POST"])
     def spec_intake_preview():
         data = request.get_json(force=True)
-        requirements_path = data.get("requirements_path")
-        roadmap_path = data.get("roadmap_path")
+        try:
+            input_artifacts = resolve_input_artifacts_payload(data)
+            delivery_guardrails = resolve_delivery_guardrails_payload(data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except FileNotFoundError as exc:
+            return jsonify({"error": str(exc)}), 404
 
-        if not requirements_path or not roadmap_path:
-            return jsonify({"error": "requirements_path and roadmap_path are required"}), 400
-
-        resolved_requirements = resolve_input_path(requirements_path)
-        resolved_roadmap = resolve_input_path(roadmap_path)
-
-        if not resolved_requirements.is_file():
-            return jsonify({"error": f"requirements_path not found: {resolved_requirements}"}), 404
-        if not resolved_roadmap.is_file():
-            return jsonify({"error": f"roadmap_path not found: {resolved_roadmap}"}), 404
-
-        blueprint = app.extensions["spec_intake_service"].build_blueprint(
-            requirements_path=resolved_requirements,
-            roadmap_path=resolved_roadmap,
+        blueprint = app.extensions["spec_intake_service"].build_blueprint_from_input_artifacts(
+            input_artifacts=input_artifacts,
+            delivery_guardrails=delivery_guardrails,
         )
         return jsonify(blueprint.to_dict())
 
     @app.route("/api/blueprints/import", methods=["POST"])
     def import_blueprint():
         data = request.get_json(force=True)
-        requirements_path = data.get("requirements_path")
-        roadmap_path = data.get("roadmap_path")
-
-        if not requirements_path or not roadmap_path:
-            return jsonify({"error": "requirements_path and roadmap_path are required"}), 400
-
-        resolved_requirements = resolve_input_path(requirements_path)
-        resolved_roadmap = resolve_input_path(roadmap_path)
-
-        if not resolved_requirements.is_file():
-            return jsonify({"error": f"requirements_path not found: {resolved_requirements}"}), 404
-        if not resolved_roadmap.is_file():
-            return jsonify({"error": f"roadmap_path not found: {resolved_roadmap}"}), 404
+        try:
+            input_artifacts = resolve_input_artifacts_payload(data)
+            delivery_guardrails = resolve_delivery_guardrails_payload(data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except FileNotFoundError as exc:
+            return jsonify({"error": str(exc)}), 404
 
         spec_service = app.extensions["spec_intake_service"]
         persistence_service = app.extensions["blueprint_persistence_service"]
-        blueprint = spec_service.build_blueprint(
-            requirements_path=resolved_requirements,
-            roadmap_path=resolved_roadmap,
+        blueprint = spec_service.build_blueprint_from_input_artifacts(
+            input_artifacts=input_artifacts,
+            delivery_guardrails=delivery_guardrails,
         )
         blueprint_record = persistence_service.persist_blueprint(blueprint)
         return jsonify(persistence_service.serialize_blueprint_detail(blueprint_record)), 201
@@ -262,6 +307,25 @@ def register_routes(app: Flask) -> None:
         if blueprint_record is None:
             return jsonify({"error": "Blueprint not found"}), 404
         return jsonify(persistence_service.serialize_blueprint_detail(blueprint_record))
+
+    @app.route("/api/blueprints/<int:blueprint_id>/delivery-guardrails", methods=["PUT"])
+    def update_blueprint_delivery_guardrails(blueprint_id: int):
+        persistence_service = app.extensions["blueprint_persistence_service"]
+        blueprint_record = persistence_service.get_blueprint(blueprint_id)
+        if blueprint_record is None:
+            return jsonify({"error": "Blueprint not found"}), 404
+
+        data = request.get_json(force=True)
+        try:
+            delivery_guardrails = resolve_delivery_guardrails_payload(data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        updated = persistence_service.update_delivery_guardrails(
+            blueprint_id=blueprint_id,
+            delivery_guardrails=delivery_guardrails,
+        )
+        return jsonify(persistence_service.serialize_blueprint_detail(updated))
 
     @app.route("/api/blueprints/<int:blueprint_id>/feedback", methods=["POST"])
     def create_blueprint_feedback(blueprint_id: int):
@@ -953,6 +1017,21 @@ def register_routes(app: Flask) -> None:
     def runtime_tools():
         runtime = app.extensions["mission_control_runtime"]
         return jsonify(runtime.describe_tools())
+
+    @app.route("/api/runtime/workspace/apply-markdown-bundle", methods=["POST"])
+    def runtime_apply_markdown_bundle():
+        data = request.get_json(force=True)
+        bundle_markdown = data.get("bundle_markdown")
+        if not isinstance(bundle_markdown, str) or not bundle_markdown.strip():
+            return jsonify({"error": "bundle_markdown is required"}), 400
+        try:
+            payload = app.extensions["mission_control_runtime"].tool_catalog.apply_markdown_bundle(
+                bundle_markdown=bundle_markdown,
+                overwrite=bool(data.get("overwrite", True)),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload), 201
 
     @app.route("/api/runtime/crew-seeds", methods=["GET"])
     def runtime_crew_seeds():

@@ -8,6 +8,7 @@ from .models import (
     SpecDocument,
     TechnologyGuidance,
 )
+from .flexible_inputs import SOURCE_INPUT_KIND_METADATA_KEY
 
 
 CONTRACT_NAME = "mission_control_certified_input"
@@ -35,8 +36,12 @@ def build_certified_input(
     *,
     source_input_kind: str | None = None,
 ) -> CertifiedInput:
-    resolved_input_kind = source_input_kind or infer_source_input_kind(blueprint.source_documents)
-    certification_status = _determine_certification_status(blueprint)
+    resolved_input_kind = (
+        source_input_kind
+        or _extract_source_input_kind_override(blueprint.source_documents)
+        or infer_source_input_kind(blueprint.source_documents)
+    )
+    certification_status = _determine_certification_status(blueprint, resolved_input_kind)
     confidence_score = _compute_confidence_score(blueprint)
     technology_guidance = _build_technology_guidance(blueprint)
     assumptions = _build_assumptions(resolved_input_kind)
@@ -71,12 +76,22 @@ def build_certified_input(
     )
 
 
-def _determine_certification_status(blueprint: ProjectBlueprint) -> str:
+def _determine_certification_status(blueprint: ProjectBlueprint, source_input_kind: str) -> str:
     if not blueprint.requirements or not blueprint.roadmap_epics:
         return INSUFFICIENT_INPUT
+    if source_input_kind != "formal_pair":
+        return NEEDS_OPERATOR_REVIEW
     if blueprint.issues:
         return NEEDS_OPERATOR_REVIEW
     return READY_FOR_PLANNING
+
+
+def _extract_source_input_kind_override(source_documents: list[SpecDocument]) -> str | None:
+    for document in source_documents:
+        source_input_kind = document.metadata.get(SOURCE_INPUT_KIND_METADATA_KEY)
+        if source_input_kind:
+            return source_input_kind
+    return None
 
 
 def _compute_confidence_score(blueprint: ProjectBlueprint) -> float:
