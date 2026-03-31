@@ -121,9 +121,21 @@ def test_spec_intake_service_builds_blueprint(sample_spec_files):
     assert blueprint.certified_input.certification_status == "ready_for_planning"
     assert blueprint.certified_input.technology_guidance is not None
     assert blueprint.certified_input.technology_guidance.philosophy == "python_first"
+    assert blueprint.certified_input.architecture_synthesis is not None
+    assert blueprint.certified_input.architecture_synthesis.nfr_candidates
+    assert blueprint.certified_input.architecture_synthesis.technical_contracts
+    assert blueprint.certified_input.architecture_synthesis.adr_bootstrap
     assert "Python" in blueprint.certified_input.technology_guidance.selection_policy
     assert any(
         document.doc_type == "requirements.generated.md"
+        for document in blueprint.certified_input.documents
+    )
+    assert any(
+        document.doc_type == "technical_contracts.initial.md"
+        for document in blueprint.certified_input.documents
+    )
+    assert any(
+        document.doc_type == "adr_bootstrap.md"
         for document in blueprint.certified_input.documents
     )
 
@@ -163,6 +175,7 @@ def test_spec_intake_preview_endpoint_returns_blueprint(sample_spec_files, tmp_p
     assert payload["certified_input"]["certification_status"] == "ready_for_planning"
     assert payload["certified_input"]["documents"][0]["doc_type"] == "requirements.generated.md"
     assert payload["certified_input"]["technology_guidance"]["philosophy"] == "python_first"
+    assert payload["certified_input"]["architecture_synthesis"]["nfr_candidates"]
 
 
 def test_certified_input_highlights_platform_exceptions(tmp_path):
@@ -294,3 +307,38 @@ def test_spec_intake_service_normalizes_example_project_dossier(example_project_
     assert blueprint.certified_input.source_input_kind == "roadmap_dossier"
     assert blueprint.certified_input.certification_status == "needs_operator_review"
     assert any(epic.name.startswith("Fase 0") for epic in blueprint.roadmap_epics)
+
+
+def test_architecture_synthesizer_closes_gaps_for_open_use_case():
+    service_module = load_module("spec_intake.service")
+    service = service_module.SpecIntakeService()
+
+    blueprint = service.build_blueprint_from_input_artifacts(
+        input_artifacts=[
+            {
+                "label": "chat-brief.md",
+                "content": (
+                    "Quiero un sistema de gestion de firmas de recursos humanos donde puedan contratar, "
+                    "firmar contrato usando ethereum contracts, que los empleados registren su asistencia "
+                    "y hora de inicio de labores en una aplicacion windows/linux/mac os, registren tareas "
+                    "y se calculen salarios por hora por individuo."
+                ),
+            }
+        ]
+    )
+
+    assert blueprint.certified_input is not None
+    assert blueprint.certified_input.source_input_kind == "use_case_only"
+    assert blueprint.certified_input.certification_status == "needs_operator_review"
+    architecture = blueprint.certified_input.architecture_synthesis
+    assert architecture is not None
+    assert any(contract.name == "Gateway de Firma y Settlement en Ethereum" for contract in architecture.technical_contracts)
+    assert any(contract.name == "Cliente de Asistencia y Sincronizacion" for contract in architecture.technical_contracts)
+    assert any(candidate.category == "auditability" for candidate in architecture.nfr_candidates)
+    assert any(candidate.category == "determinism" for candidate in architecture.nfr_candidates)
+    assert any("wallets" in question.lower() or "gas" in question.lower() for question in architecture.open_questions)
+    assert any(
+        "backend central" in document.content.lower()
+        for document in blueprint.certified_input.documents
+        if document.doc_type == "nfrs.candidates.md"
+    )

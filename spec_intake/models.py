@@ -73,6 +73,47 @@ class TechnologyGuidance:
 
 
 @dataclass(frozen=True)
+class NfrCandidate:
+    nfr_id: str
+    category: str
+    statement: str
+    rationale: str
+    source_signals: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TechnicalContract:
+    contract_id: str
+    name: str
+    boundary: str
+    summary: str
+    responsibilities: list[str] = field(default_factory=list)
+    source_signals: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AdrBootstrapDecision:
+    adr_id: str
+    title: str
+    status: str
+    decision: str
+    rationale: str
+    follow_up_questions: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ArchitectureSynthesis:
+    summary: str
+    architectural_style: str
+    system_context: str
+    assumptions: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    nfr_candidates: list[NfrCandidate] = field(default_factory=list)
+    technical_contracts: list[TechnicalContract] = field(default_factory=list)
+    adr_bootstrap: list[AdrBootstrapDecision] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class CertifiedDocument:
     doc_type: str
     title: str
@@ -94,6 +135,7 @@ class CertifiedInput:
     open_questions: list[str] = field(default_factory=list)
     traceability_map: list[CertifiedTraceabilityEntry] = field(default_factory=list)
     technology_guidance: TechnologyGuidance | None = None
+    architecture_synthesis: ArchitectureSynthesis | None = None
 
 
 @dataclass(frozen=True)
