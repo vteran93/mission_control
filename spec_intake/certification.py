@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 from .architecture_synthesizer import synthesize_architecture
+from .intake_guardrails import (
+    INSUFFICIENT_INPUT,
+    NEEDS_OPERATOR_REVIEW,
+    READY_FOR_PLANNING,
+    assess_confidence,
+    build_question_budget,
+    decide_human_escalation,
+    determine_certification_status,
+)
 from .models import (
     ArchitectureSynthesis,
     CertifiedDocument,
     CertifiedInput,
     CertifiedTraceabilityEntry,
+    ConfidenceAssessment,
+    HumanEscalationDecision,
     ProjectBlueprint,
+    QuestionBudget,
     SpecDocument,
     TechnologyGuidance,
 )
@@ -15,9 +27,6 @@ from .flexible_inputs import SOURCE_INPUT_KIND_METADATA_KEY
 
 CONTRACT_NAME = "mission_control_certified_input"
 CONTRACT_VERSION = "1.0"
-READY_FOR_PLANNING = "ready_for_planning"
-NEEDS_OPERATOR_REVIEW = "needs_operator_review"
-INSUFFICIENT_INPUT = "insufficient_input"
 
 
 def infer_source_input_kind(source_documents: list[SpecDocument]) -> str:
@@ -43,8 +52,6 @@ def build_certified_input(
         or _extract_source_input_kind_override(blueprint.source_documents)
         or infer_source_input_kind(blueprint.source_documents)
     )
-    certification_status = _determine_certification_status(blueprint, resolved_input_kind)
-    confidence_score = _compute_confidence_score(blueprint)
     technology_guidance = _build_technology_guidance(blueprint)
     architecture_synthesis = synthesize_architecture(
         blueprint,
@@ -54,6 +61,29 @@ def build_certified_input(
     assumptions = list(architecture_synthesis.assumptions)
     open_questions = list(architecture_synthesis.open_questions)
     traceability_map = _build_traceability_map(blueprint)
+    confidence_assessment = assess_confidence(
+        blueprint=blueprint,
+        source_input_kind=resolved_input_kind,
+        architecture_synthesis=architecture_synthesis,
+        traceability_entries=len(traceability_map),
+    )
+    question_budget = build_question_budget(
+        source_input_kind=resolved_input_kind,
+        open_questions=open_questions,
+    )
+    human_escalation = decide_human_escalation(
+        blueprint=blueprint,
+        source_input_kind=resolved_input_kind,
+        confidence_assessment=confidence_assessment,
+        question_budget=question_budget,
+    )
+    certification_status = determine_certification_status(
+        blueprint=blueprint,
+        confidence_assessment=confidence_assessment,
+        question_budget=question_budget,
+        human_escalation=human_escalation,
+    )
+    confidence_score = confidence_assessment.score
     documents = _build_certified_documents(
         blueprint=blueprint,
         certification_status=certification_status,
@@ -62,6 +92,9 @@ def build_certified_input(
         open_questions=open_questions,
         technology_guidance=technology_guidance,
         architecture_synthesis=architecture_synthesis,
+        confidence_assessment=confidence_assessment,
+        question_budget=question_budget,
+        human_escalation=human_escalation,
     )
 
     return CertifiedInput(
@@ -82,17 +115,10 @@ def build_certified_input(
         traceability_map=traceability_map,
         technology_guidance=technology_guidance,
         architecture_synthesis=architecture_synthesis,
+        confidence_assessment=confidence_assessment,
+        question_budget=question_budget,
+        human_escalation=human_escalation,
     )
-
-
-def _determine_certification_status(blueprint: ProjectBlueprint, source_input_kind: str) -> str:
-    if not blueprint.requirements or not blueprint.roadmap_epics:
-        return INSUFFICIENT_INPUT
-    if source_input_kind != "formal_pair":
-        return NEEDS_OPERATOR_REVIEW
-    if blueprint.issues:
-        return NEEDS_OPERATOR_REVIEW
-    return READY_FOR_PLANNING
 
 
 def _extract_source_input_kind_override(source_documents: list[SpecDocument]) -> str | None:
@@ -101,21 +127,6 @@ def _extract_source_input_kind_override(source_documents: list[SpecDocument]) ->
         if source_input_kind:
             return source_input_kind
     return None
-
-
-def _compute_confidence_score(blueprint: ProjectBlueprint) -> float:
-    score = 1.0
-    if not blueprint.requirements:
-        score -= 0.45
-    if not blueprint.roadmap_epics:
-        score -= 0.45
-    if any(not epic.tickets for epic in blueprint.roadmap_epics):
-        score -= 0.10
-    score -= min(0.30, len(blueprint.issues) * 0.08)
-    if not blueprint.acceptance_items:
-        score -= 0.05
-    return round(max(0.0, min(1.0, score)), 2)
-
 
 def _build_technology_guidance(blueprint: ProjectBlueprint) -> TechnologyGuidance:
     haystack = " ".join(
@@ -233,6 +244,9 @@ def _build_certified_documents(
     open_questions: list[str],
     technology_guidance: TechnologyGuidance,
     architecture_synthesis: ArchitectureSynthesis,
+    confidence_assessment: ConfidenceAssessment,
+    question_budget: QuestionBudget,
+    human_escalation: HumanEscalationDecision,
 ) -> list[CertifiedDocument]:
     requirements_source = next(
         (document for document in blueprint.source_documents if document.doc_type == "requirements"),
@@ -253,6 +267,8 @@ def _build_certified_documents(
                 confidence_score=confidence_score,
                 technology_guidance=technology_guidance,
                 architecture_synthesis=architecture_synthesis,
+                question_budget=question_budget,
+                human_escalation=human_escalation,
             ),
             source_paths=[requirements_source.path] if requirements_source else [],
             source_sections=[item.source_section for item in blueprint.requirements],
@@ -312,6 +328,20 @@ def _build_certified_documents(
                 title="Open Questions",
                 project_name=blueprint.project_name,
                 items=open_questions or ["No open questions detected in the current certified input."],
+                question_budget=question_budget,
+                human_escalation=human_escalation,
+            ),
+            source_paths=[document.path for document in blueprint.source_documents],
+        ),
+        CertifiedDocument(
+            doc_type="confidence_assessment.md",
+            title="confidence_assessment.md",
+            content=_render_confidence_assessment_document(
+                project_name=blueprint.project_name,
+                certification_status=certification_status,
+                confidence_assessment=confidence_assessment,
+                question_budget=question_budget,
+                human_escalation=human_escalation,
             ),
             source_paths=[document.path for document in blueprint.source_documents],
         ),
@@ -325,6 +355,8 @@ def _render_requirements_markdown(
     confidence_score: float,
     technology_guidance: TechnologyGuidance,
     architecture_synthesis: ArchitectureSynthesis,
+    question_budget: QuestionBudget,
+    human_escalation: HumanEscalationDecision,
 ) -> str:
     lines = [
         f"# Requerimientos Formales - {blueprint.project_name}",
@@ -332,6 +364,11 @@ def _render_requirements_markdown(
         f"**Proyecto**: {blueprint.project_name}",
         f"**Certification Status**: {certification_status}",
         f"**Confidence Score**: {confidence_score:.2f}",
+        (
+            f"**Question Budget**: {question_budget.open_questions_count}/"
+            f"{question_budget.max_questions} abiertas"
+        ),
+        f"**Human Escalation**: {'required' if human_escalation.required else 'not_required'}",
         "",
         "## Tecnologia y Arquitectura",
         "",
@@ -439,14 +476,81 @@ def _render_roadmap_markdown(
     return "\n".join(lines) + "\n"
 
 
-def _render_list_document(*, title: str, project_name: str, items: list[str]) -> str:
+def _render_list_document(
+    *,
+    title: str,
+    project_name: str,
+    items: list[str],
+    question_budget: QuestionBudget | None = None,
+    human_escalation: HumanEscalationDecision | None = None,
+) -> str:
     lines = [
         f"# {title} - {project_name}",
         "",
         f"**Proyecto**: {project_name}",
         "",
     ]
+    if question_budget is not None:
+        lines.extend(
+            [
+                (
+                    f"**Question Budget**: {question_budget.open_questions_count}/"
+                    f"{question_budget.max_questions} abiertas"
+                ),
+                f"**Critical Questions**: {question_budget.critical_questions_count}",
+                "",
+            ]
+        )
+    if human_escalation is not None:
+        lines.extend(
+            [
+                f"**Human Escalation**: {'required' if human_escalation.required else 'not_required'}",
+                f"**Recommended Action**: {human_escalation.recommended_action}",
+                "",
+            ]
+        )
     lines.extend(f"- {item}" for item in items)
+    return "\n".join(lines) + "\n"
+
+
+def _render_confidence_assessment_document(
+    *,
+    project_name: str,
+    certification_status: str,
+    confidence_assessment: ConfidenceAssessment,
+    question_budget: QuestionBudget,
+    human_escalation: HumanEscalationDecision,
+) -> str:
+    lines = [
+        f"# Confidence Assessment - {project_name}",
+        "",
+        f"**Proyecto**: {project_name}",
+        f"**Certification Status**: {certification_status}",
+        f"**Confidence Score**: {confidence_assessment.score:.2f}",
+        f"**Ready Threshold**: {confidence_assessment.ready_threshold:.2f}",
+        f"**Review Threshold**: {confidence_assessment.review_threshold:.2f}",
+        f"**Recommended Status**: {confidence_assessment.recommended_status}",
+        "",
+        "## Question Budget",
+        "",
+        f"- Open questions: {question_budget.open_questions_count}",
+        f"- Max questions: {question_budget.max_questions}",
+        f"- Critical questions: {question_budget.critical_questions_count}",
+        f"- Remaining budget: {question_budget.remaining_questions}",
+        f"- Budget exceeded: {'yes' if question_budget.exceeded else 'no'}",
+        "",
+        "## Human Escalation",
+        "",
+        f"- Required: {'yes' if human_escalation.required else 'no'}",
+        f"- Recommended action: {human_escalation.recommended_action}",
+    ]
+    if human_escalation.reasons:
+        lines.extend(["", "## Escalation Reasons", ""])
+        lines.extend(f"- {reason}" for reason in human_escalation.reasons)
+    if confidence_assessment.factors:
+        lines.extend(["", "## Factors", ""])
+        for factor in confidence_assessment.factors:
+            lines.append(f"- {factor.label}: {factor.impact:+.2f} · {factor.rationale}")
     return "\n".join(lines) + "\n"
 
 
