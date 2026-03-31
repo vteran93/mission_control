@@ -7,7 +7,7 @@
 ## Estado de ejecucion
 
 - [x] Fase 0 - Foundation Cleanup
-- [x] Fase 1 - Spec Intake Engine (slice inicial entregado: parser, servicio y preview API)
+- [x] Fase 1 - Spec Intake Engine (slice ampliado entregado: parser, intake flexible, `input certificado`, dossier-to-certified-input y `architecture synthesizer` MVP)
 - [x] Fase 2 - Postgres Delivery Model (blueprints, sprints, tracking de ejecucion, timeline y reporting en Postgres)
 - [ ] Fase 3 - CrewAI Runtime Hybrid (runtime operativo validado; escalamiento real a Bedrock sigue pendiente)
 - [x] Fase 4 - Autonomous Scrum Planner (plan versionado, aprobacion, escalamiento Bedrock y vista operativa por sprint)
@@ -18,13 +18,13 @@
 ## Cobertura actual del intake
 
 - [x] Nivel A - `requirements.md` + `roadmap.md` con estructura canonica y tickets parseables.
-- [ ] Nivel B - dossier semiestructurado como `docs/example_project_2/VEO3_CLAUDE_INTEGRATION_ROADMAP.md` mas anexos.
-- [ ] Nivel C - conjunto variable de artefactos (`notes`, `adr`, diagramas, roadmap-only, brief tecnico).
-- [ ] Nivel D - solo casos de uso, restricciones de negocio y objetivos.
+- [x] Nivel B - dossier semiestructurado como `docs/example_project_2/VEO3_CLAUDE_INTEGRATION_ROADMAP.md` mas anexos.
+- [x] Nivel C - conjunto variable de artefactos (`notes`, `adr`, diagramas, roadmap-only, brief tecnico).
+- [x] Nivel D - solo casos de uso, restricciones de negocio y objetivos.
 - [ ] Nivel E - conversacion iterativa por chat web con el operador.
-- [ ] Modo `architect close-the-gap` para emitir `requirements.generated.md`, `roadmap.generated.md`, `assumptions.md`, `open_questions.md` y `confidence_score`.
+- [x] Modo `architect close-the-gap` para emitir `requirements.generated.md`, `roadmap.generated.md`, `assumptions.md`, `open_questions.md` y `confidence_score` en un slice MVP no conversacional.
 
-Conclusion de esta revision: el roadmap actual cubre bien el Nivel A, pero todavia no declaraba con suficiente precision el camino para los niveles B-E; la ampliacion queda incorporada en Fase 1, Fase 6 y Fase 7.
+Conclusion de esta revision: el roadmap ya cubre bien los niveles A-D con `input_artifacts[]`, normalizacion y un arquitecto MVP; el salto pendiente queda concentrado en el Nivel E y en los guardrails de `confidence_score` / `question_budget`.
 
 ## Resultado esperado
 
@@ -335,17 +335,17 @@ Tickets:
 - `AG-105` Crear `Intake Crew` en CrewAI para producir blueprint validado y score de confianza.
 - `AG-106` Persistir versionado de specs y blueprint derivado.
 - `AG-107` Exponer endpoint/UI para cargar o registrar documentos fuente por proyecto.
-- `AG-108` Implementar `input shape classifier` para distinguir `formal_pair`, `roadmap_dossier`, `multi_artifact_brief` y `use_case_only`.
-- `AG-109` Crear `Requirements Normalizer` que genere `requirements.generated.md` cuando el input no traiga un documento canonico.
-- `AG-110` Crear `Architecture Synthesizer` para hacer `close-the-gap`: supuestos, NFRs candidatos, contratos tecnicos iniciales, ADR bootstrap y preguntas abiertas.
-- `AG-111` Cambiar el contrato logico de intake desde `requirements_path + roadmap_path` hacia `input_artifacts[]`, aunque el adapter inicial siga aceptando ambos campos para compatibilidad.
-- `AG-112` Definir `confidence_score`, `question_budget` y criterio de escalamiento humano para evitar que el arquitecto invente detalles sin evidencia suficiente.
+- [x] `AG-108` Implementar `input shape classifier` para distinguir `formal_pair`, `roadmap_dossier`, `multi_artifact_brief` y `use_case_only`.
+- [x] `AG-109` Crear `Requirements Normalizer` que genere `requirements.generated.md` cuando el input no traiga un documento canonico.
+- [x] `AG-110` Crear `Architecture Synthesizer` para hacer `close-the-gap`: supuestos, NFRs candidatos, contratos tecnicos iniciales, ADR bootstrap y preguntas abiertas.
+- [x] `AG-111` Cambiar el contrato logico de intake desde `requirements_path + roadmap_path` hacia `input_artifacts[]`, aunque el adapter inicial siga aceptando ambos campos para compatibilidad.
+- [ ] `AG-112` Definir `confidence_score`, `question_budget` y criterio de escalamiento humano para evitar que el arquitecto invente detalles sin evidencia suficiente.
 - `AG-113` Crear `conversation intake session` persistida: transcript, turnos, resumenes, preguntas abiertas, respuestas y estado de confianza.
 - `AG-114` Crear `Conversational Architect` aguas arriba para transformar chat web en `requirements.generated.md` y `roadmap.generated.md`.
 - `AG-115` Permitir ciclo iterativo de aclaraciones dentro del chat antes de congelar artefactos formales.
 - `AG-116` Exponer preview/diff y aprobacion de documentos generados desde chat antes de pasar a planning.
-- `AG-117` Definir el contrato canonico de `input certificado` para intake derivado, incluyendo `certification_status`, `confidence_score`, trazabilidad y paquete documental minimo.
-- `AG-118` Implementar `dossier-to-certified-input` para inputs como `docs/example_project_2/*`, cerrando gaps hasta el contrato canonico consumido por planning.
+- [x] `AG-117` Definir el contrato canonico de `input certificado` para intake derivado, incluyendo `certification_status`, `confidence_score`, trazabilidad y paquete documental minimo.
+- [x] `AG-118` Implementar `dossier-to-certified-input` para inputs como `docs/example_project_2/*`, cerrando gaps hasta el contrato canonico consumido por planning.
 
 Criterios de aceptacion:
 
