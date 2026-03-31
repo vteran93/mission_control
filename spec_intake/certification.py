@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from .architecture_synthesizer import synthesize_architecture
 from .models import (
+    ArchitectureSynthesis,
     CertifiedDocument,
     CertifiedInput,
     CertifiedTraceabilityEntry,
@@ -44,8 +46,13 @@ def build_certified_input(
     certification_status = _determine_certification_status(blueprint, resolved_input_kind)
     confidence_score = _compute_confidence_score(blueprint)
     technology_guidance = _build_technology_guidance(blueprint)
-    assumptions = _build_assumptions(resolved_input_kind)
-    open_questions = _build_open_questions(blueprint)
+    architecture_synthesis = synthesize_architecture(
+        blueprint,
+        technology_guidance=technology_guidance,
+        source_input_kind=resolved_input_kind,
+    )
+    assumptions = list(architecture_synthesis.assumptions)
+    open_questions = list(architecture_synthesis.open_questions)
     traceability_map = _build_traceability_map(blueprint)
     documents = _build_certified_documents(
         blueprint=blueprint,
@@ -54,6 +61,7 @@ def build_certified_input(
         assumptions=assumptions,
         open_questions=open_questions,
         technology_guidance=technology_guidance,
+        architecture_synthesis=architecture_synthesis,
     )
 
     return CertifiedInput(
@@ -73,6 +81,7 @@ def build_certified_input(
         open_questions=open_questions,
         traceability_map=traceability_map,
         technology_guidance=technology_guidance,
+        architecture_synthesis=architecture_synthesis,
     )
 
 
@@ -106,31 +115,6 @@ def _compute_confidence_score(blueprint: ProjectBlueprint) -> float:
     if not blueprint.acceptance_items:
         score -= 0.05
     return round(max(0.0, min(1.0, score)), 2)
-
-
-def _build_assumptions(source_input_kind: str) -> list[str]:
-    assumptions = [
-        (
-            "La seleccion tecnologica sigue una politica python-first para backend, "
-            "automatizacion y orquestacion, salvo incompatibilidad real con la "
-            "plataforma o el runtime objetivo."
-        ),
-        (
-            "Cualquier excepcion a python-first debe documentarse como decision "
-            "arquitectonica explicita antes de pasar a delivery."
-        ),
-    ]
-    if source_input_kind != "formal_pair":
-        assumptions.append(
-            "Este paquete certificado representa una normalizacion derivada y requiere aprobacion del operador."
-        )
-    return assumptions
-
-
-def _build_open_questions(blueprint: ProjectBlueprint) -> list[str]:
-    if blueprint.issues:
-        return list(blueprint.issues)
-    return []
 
 
 def _build_technology_guidance(blueprint: ProjectBlueprint) -> TechnologyGuidance:
@@ -248,6 +232,7 @@ def _build_certified_documents(
     assumptions: list[str],
     open_questions: list[str],
     technology_guidance: TechnologyGuidance,
+    architecture_synthesis: ArchitectureSynthesis,
 ) -> list[CertifiedDocument]:
     requirements_source = next(
         (document for document in blueprint.source_documents if document.doc_type == "requirements"),
@@ -267,6 +252,7 @@ def _build_certified_documents(
                 certification_status=certification_status,
                 confidence_score=confidence_score,
                 technology_guidance=technology_guidance,
+                architecture_synthesis=architecture_synthesis,
             ),
             source_paths=[requirements_source.path] if requirements_source else [],
             source_sections=[item.source_section for item in blueprint.requirements],
@@ -293,6 +279,33 @@ def _build_certified_documents(
             source_paths=[document.path for document in blueprint.source_documents],
         ),
         CertifiedDocument(
+            doc_type="nfrs.candidates.md",
+            title="nfrs.candidates.md",
+            content=_render_nfr_candidates_document(
+                project_name=blueprint.project_name,
+                architecture_synthesis=architecture_synthesis,
+            ),
+            source_paths=[document.path for document in blueprint.source_documents],
+        ),
+        CertifiedDocument(
+            doc_type="technical_contracts.initial.md",
+            title="technical_contracts.initial.md",
+            content=_render_technical_contracts_document(
+                project_name=blueprint.project_name,
+                architecture_synthesis=architecture_synthesis,
+            ),
+            source_paths=[document.path for document in blueprint.source_documents],
+        ),
+        CertifiedDocument(
+            doc_type="adr_bootstrap.md",
+            title="adr_bootstrap.md",
+            content=_render_adr_bootstrap_document(
+                project_name=blueprint.project_name,
+                architecture_synthesis=architecture_synthesis,
+            ),
+            source_paths=[document.path for document in blueprint.source_documents],
+        ),
+        CertifiedDocument(
             doc_type="open_questions.md",
             title="open_questions.md",
             content=_render_list_document(
@@ -311,6 +324,7 @@ def _render_requirements_markdown(
     certification_status: str,
     confidence_score: float,
     technology_guidance: TechnologyGuidance,
+    architecture_synthesis: ArchitectureSynthesis,
 ) -> str:
     lines = [
         f"# Requerimientos Formales - {blueprint.project_name}",
@@ -328,6 +342,10 @@ def _render_requirements_markdown(
         lines.append(f"- Preferencia: {item}")
     for item in technology_guidance.decision_notes:
         lines.append(f"- Nota: {item}")
+
+    lines.extend(["", "## NFRs Candidatos", ""])
+    for candidate in architecture_synthesis.nfr_candidates:
+        lines.append(f"- {candidate.nfr_id} [{candidate.category}] {candidate.statement}")
 
     lines.extend(["", "## Capacidades", ""])
     if blueprint.capabilities:
@@ -430,3 +448,91 @@ def _render_list_document(*, title: str, project_name: str, items: list[str]) ->
     ]
     lines.extend(f"- {item}" for item in items)
     return "\n".join(lines) + "\n"
+
+
+def _render_nfr_candidates_document(
+    *,
+    project_name: str,
+    architecture_synthesis: ArchitectureSynthesis,
+) -> str:
+    lines = [
+        f"# NFR Candidates - {project_name}",
+        "",
+        f"**Proyecto**: {project_name}",
+        f"**Estilo arquitectonico**: {architecture_synthesis.architectural_style}",
+        "",
+        architecture_synthesis.system_context,
+        "",
+    ]
+    for candidate in architecture_synthesis.nfr_candidates:
+        lines.extend(
+            [
+                f"## {candidate.nfr_id} · {candidate.category}",
+                "",
+                candidate.statement,
+                "",
+                f"Rationale: {candidate.rationale}",
+            ]
+        )
+        if candidate.source_signals:
+            lines.append(f"Signals: {', '.join(candidate.source_signals)}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_technical_contracts_document(
+    *,
+    project_name: str,
+    architecture_synthesis: ArchitectureSynthesis,
+) -> str:
+    lines = [
+        f"# Technical Contracts - {project_name}",
+        "",
+        f"**Proyecto**: {project_name}",
+        "",
+    ]
+    for contract in architecture_synthesis.technical_contracts:
+        lines.extend(
+            [
+                f"## {contract.contract_id} · {contract.name}",
+                "",
+                f"**Boundary**: {contract.boundary}",
+                contract.summary,
+                "",
+                "**Responsibilities**",
+            ]
+        )
+        lines.extend(f"- {item}" for item in contract.responsibilities)
+        if contract.source_signals:
+            lines.extend(["", f"**Signals**: {', '.join(contract.source_signals)}"])
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_adr_bootstrap_document(
+    *,
+    project_name: str,
+    architecture_synthesis: ArchitectureSynthesis,
+) -> str:
+    lines = [
+        f"# ADR Bootstrap - {project_name}",
+        "",
+        f"**Proyecto**: {project_name}",
+        "",
+    ]
+    for decision in architecture_synthesis.adr_bootstrap:
+        lines.extend(
+            [
+                f"## {decision.adr_id} · {decision.title}",
+                "",
+                f"**Status**: {decision.status}",
+                f"**Decision**: {decision.decision}",
+                "",
+                f"**Rationale**: {decision.rationale}",
+            ]
+        )
+        if decision.follow_up_questions:
+            lines.extend(["", "**Follow-up Questions**"])
+            lines.extend(f"- {question}" for question in decision.follow_up_questions)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
