@@ -214,11 +214,82 @@ Sustituir el runtime heredado de Clawbot/OpenClaw por un runtime propio basado e
 - SOLID: separar proveedor de modelo, runtime de agentes y capa de dominio Mission Control
 - TDD: tests por tool, tests de runtime y tests de integración API-first
 
+## Fase 3.5 - Loop iterativo de auto-corrección en el executor (AG-712)
+
+### Objetivo
+
+Integrar un ciclo interno de implement → review → decide dentro del executor para que las tareas puedan auto-corregirse sin intervención humana ni esperar el loop completo del daemon (1-16 min).
+
+### Origen
+
+Evaluación de la propuesta `code-cli-idea.md` cruzada con los gaps del runtime actual. Documento de análisis: `docs/EVAL_ITERATIVE_CLI_WORKFLOW.md`.
+
+### Resultado esperado
+
+- Cada `DispatchTask` ejecutada puede re-intentarse con feedback adversarial inline
+- El review no requiere pasar por el ciclo de mensajes/daemon
+- El dispatcher enruta según un `next_action` estructurado (CONTINUE|FIX|FINALIZE|BLOCKED)
+- Los prompts de disciplina operativa están incorporados como base de todos los agentes
+
+### Tareas
+
+- [ ] **AG-712a**: Micro-loop de corrección en `crewai_executor.py`
+  - Wrappear `_execute_task` en un retry loop con budget configurable
+  - Ejecutar review adversarial inline tras cada intento
+  - Inyectar solo `HALLAZGOS_CRÍTICOS` como contexto de corrección
+  - Hard cap de iteraciones + decay de exigencia en revisiones sucesivas
+  - Cada iteración registra un `delivery_stage_event`
+- [ ] **AG-712b**: Review adversarial como crew_seed
+  - Crear prompt de review estructurado (HALLAZGOS_CRÍTICOS / MEDIOS / PRUEBAS_FALTANTES / VEREDICTO)
+  - Integrar como `ReviewStage` en el pipeline de delivery
+  - Review con modelo local (Ollama) por defecto, escalación a Bedrock solo si REVISE
+- [ ] **AG-712c**: Decision routing en el dispatcher
+  - Agregar campo `next_action` en `task_queue` y `DispatchResult`
+  - Lógica en `apply_result()`: CONTINUE→siguiente, FIX→re-encolar con prioridad elevada, FINALIZE→cierre, BLOCKED→escalar
+- [ ] **AG-712d**: Prompts de disciplina operativa como base de agentes
+  - Extraer principios de `global_system.md` (iteratividad, cambios pequeños, no inventar requisitos, declarar supuestos)
+  - Incorporar en `crew_runtime/crew_seeds.py` como `OPERATIONAL_DISCIPLINE_PROMPT`
+  - Aplicar como prefijo en templates de `config/agents/`
+- [ ] **AG-712e**: Configuración en operator_control
+  - `max_review_retries` (default: 3)
+  - `review_model` (default: ollama, escalación: bedrock)
+  - `review_strictness_decay` (boolean, default: true)
+
+### Dependencias
+
+- Fase 3 operativa (CrewAI executor + Ollama funcionales)
+- `DispatchResult` y `DatabaseQueueDispatcher` estables
+
+### Criterios de aceptación
+
+- [ ] Una tarea que falla en su primer intento se re-ejecuta con feedback del review
+- [ ] El review inline no pasa por el ciclo de mensajes/daemon
+- [ ] El dispatcher enruta correctamente según `next_action`
+- [ ] Las iteraciones de corrección quedan registradas como `delivery_stage_event`
+- [ ] El costo de tokens del loop de review es monitoreable desde el dashboard
+- [ ] El hard cap de iteraciones previene loops infinitos
+
+### Riesgos y mitigaciones
+
+| Riesgo | Mitigación |
+|---|---|
+| Costo de tokens con budget $50 | Review con Ollama, solo escalar a Bedrock si REVISE |
+| Loops infinitos | Hard cap + decay de exigencia |
+| Drift de contexto por acumulación | Solo inyectar hallazgos críticos del último review |
+
+### Notas de diseño
+
+- KISS: es un wrapper alrededor de la ejecución existente, no un rewrite
+- DRY: el prompt de review se reutiliza como crew_seed, no se duplica
+- TDD: tests de retry loop con mocks de executor y review
+- Presupuesto: el review local es gratuito (Ollama), la escalación tiene gate explícito
+
 ## Secuencia recomendada de ejecución
 
 1. Implementar primero el modelo de datos y contratos API de Fase 2.
 2. Montar el runtime CrewAI/Ollama de Fase 3 encima de esos contratos.
 3. Retirar el runtime heredado solo cuando exista paridad funcional mínima.
+4. Integrar el loop de auto-corrección de Fase 3.5 sobre el executor estable.
 
 ## Definition of Done para Fase 2 + 3
 

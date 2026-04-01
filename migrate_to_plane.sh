@@ -412,6 +412,29 @@ TICKETS_JSON=$(cat <<'EOF'
       "No hay adapters manuales ocultos en el flujo.",
       "El resultado sirve como criterio de salida del intake semiestructurado."
     ]
+  },
+  {
+    "code": "AG-712",
+    "phase": "Fase 3.5 - Loop Iterativo de Auto-Corrección",
+    "priority": "high",
+    "title": "Implementar loop iterativo de auto-corrección en el executor",
+    "depends_on": ["AG-308"],
+    "summary": "Integrar un ciclo interno implement→review→decide dentro del CrewAI executor para que las tareas puedan auto-corregirse sin intervención humana ni esperar el loop completo del daemon. Incluye review adversarial inline, decision routing en el dispatcher, y prompts de disciplina operativa como base de agentes.",
+    "scope": [
+      "AG-712a: Micro-loop de corrección en crewai_executor.py con retry budget configurable.",
+      "AG-712b: Review adversarial como crew_seed (HALLAZGOS_CRITICOS/MEDIOS/PRUEBAS_FALTANTES/VEREDICTO).",
+      "AG-712c: Decision routing en dispatcher (next_action: CONTINUE|FIX|FINALIZE|BLOCKED).",
+      "AG-712d: Prompts de disciplina operativa extraídos a OPERATIONAL_DISCIPLINE_PROMPT en crew_seeds.py.",
+      "AG-712e: Configuración en operator_control (max_review_retries, review_model, strictness_decay)."
+    ],
+    "acceptance": [
+      "Una tarea que falla en su primer intento se re-ejecuta con feedback del review.",
+      "El review inline no pasa por el ciclo de mensajes/daemon.",
+      "El dispatcher enruta correctamente según next_action.",
+      "Las iteraciones de corrección quedan registradas como delivery_stage_event.",
+      "El hard cap de iteraciones previene loops infinitos.",
+      "El costo de tokens del loop de review es monitoreable desde el dashboard."
+    ]
   }
 ]
 EOF

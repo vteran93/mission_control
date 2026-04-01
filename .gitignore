@@ -31,6 +31,8 @@ runtime/
 instance/
 .instance-local/
 .env
+.plane.config
+.plane-config
 
 # OS
 .DS_Store
